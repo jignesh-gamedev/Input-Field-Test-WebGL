@@ -76,7 +76,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=1.3'
+          'ServiceWorker.js?v=1.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -122,7 +122,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "1.3";
+    const BUILD_VERSION = "1.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/d260a2ee35dd187d5807ff67aae883d6.loader.js?v=" + BUILD_VERSION;
@@ -132,7 +132,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/0a339071d235b831b328008873bd4cc0.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/596f194568124e421e89df67b502e743.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/3c180c7d060a67e0a08aebc96b82c48b.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -145,7 +145,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "1.3",
+      productVersion: "1.4",
       showBanner: unityShowBanner,
     };
 
@@ -667,7 +667,7 @@
         form.action = window.location.href;
         form.autocomplete = "on";
 
-        // Helper form for password-manager field grouping.
+        // Helper form for password-manager grouping.
         // Do not use display:none.
         form.style.cssText =
           "position:fixed;left:0;top:0;width:1px;height:1px;" +
@@ -682,32 +682,13 @@
         return form;
       }
 
-      function safeSetSelectionToEnd(input) {
-        try {
-          if (!input || !input.setSelectionRange) return;
-
-          const type = (input.getAttribute("type") || "text").toLowerCase();
-
-          // Do not use email/number/date etc. Unity may call setSelectionRange().
-          const supportedTypes = ["text", "search", "tel", "url", "password"];
-
-          if (!supportedTypes.includes(type)) return;
-
-          const len = input.value ? input.value.length : 0;
-          input.setSelectionRange(len, len);
-        } catch (e) { }
-      }
-
       function applyCredentialRole(input, role) {
-        if (!isTextInput(input) || !role) return false;
+        if (!isTextInput(input) || !role) return;
 
         ensureCredentialForm();
 
-        const oldRole = input.getAttribute("data-unity-credential-role") || "";
-        const roleChanged = oldRole && oldRole !== role;
-
-        input.setAttribute("data-unity-credential-role", role);
         input.setAttribute("form", FORM_ID);
+        input.setAttribute("data-unity-credential-role", role);
 
         input.setAttribute("autocapitalize", "none");
         input.setAttribute("autocorrect", "off");
@@ -727,9 +708,10 @@
           input.setAttribute("name", "username");
           input.setAttribute("autocomplete", "username");
 
-          // Shows email keyboard on mobile, but avoids Unity setSelectionRange crash.
+          // Email keyboard without breaking Unity setSelectionRange().
           input.setAttribute("inputmode", "email");
 
+          input.setAttribute("aria-label", "Username");
           input.enterKeyHint = "next";
         }
 
@@ -747,6 +729,7 @@
           input.setAttribute("name", "password");
           input.setAttribute("autocomplete", "current-password");
 
+          input.setAttribute("aria-label", "Password");
           input.enterKeyHint = "done";
         }
 
@@ -764,10 +747,9 @@
           input.setAttribute("name", "new-password");
           input.setAttribute("autocomplete", "new-password");
 
+          input.setAttribute("aria-label", "New Password");
           input.enterKeyHint = "done";
         }
-
-        return roleChanged;
       }
 
       function getActiveNativeInput() {
@@ -776,61 +758,25 @@
         return el;
       }
 
-      function applyRoleToActiveInput(forceRefocus) {
+      function applyRoleToActiveInput() {
         const input = getActiveNativeInput();
         if (!input || !nextCredentialRole) return;
 
-        const roleChanged = applyCredentialRole(input, nextCredentialRole);
-
-        if (!forceRefocus || !roleChanged) return;
-
-        // Chrome often checks password-manager suggestions only on focus.
-        // When Unity reuses the same input, role can change while already focused.
-        // This small blur/focus makes Chrome re-check the updated attributes.
-        setTimeout(function () {
-          if (!document.body.contains(input)) return;
-
-          try {
-            input.blur();
-          } catch (e) { }
-
-          setTimeout(function () {
-            if (!document.body.contains(input)) return;
-
-            try {
-              input.focus({ preventScroll: true });
-            } catch (e) {
-              try {
-                input.focus();
-              } catch (err) { }
-            }
-
-            safeSetSelectionToEnd(input);
-            window.scrollTo(0, 0);
-          }, 30);
-        }, 30);
+        applyCredentialRole(input, nextCredentialRole);
       }
 
       window.UnityCredentialAutofill = {
         setNextRole: function (role) {
           nextCredentialRole = role;
 
-          // Unity may create/reuse the native input slightly after pointer/select.
-          requestAnimationFrame(function () {
-            applyRoleToActiveInput(true);
-          });
+          // Do NOT blur/focus here.
+          // Blur/focus closes keyboard on Android Chrome.
+          requestAnimationFrame(applyRoleToActiveInput);
 
-          setTimeout(function () {
-            applyRoleToActiveInput(true);
-          }, 50);
-
-          setTimeout(function () {
-            applyRoleToActiveInput(false);
-          }, 150);
-
-          setTimeout(function () {
-            applyRoleToActiveInput(false);
-          }, 300);
+          setTimeout(applyRoleToActiveInput, 30);
+          setTimeout(applyRoleToActiveInput, 80);
+          setTimeout(applyRoleToActiveInput, 150);
+          setTimeout(applyRoleToActiveInput, 300);
         },
 
         applyToInput: function (input) {
@@ -883,6 +829,15 @@
         },
         true
       );
+
+      const observer = new MutationObserver(function () {
+        applyRoleToActiveInput();
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
     })();
   </script>
 </body>
