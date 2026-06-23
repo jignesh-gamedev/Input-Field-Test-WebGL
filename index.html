@@ -76,7 +76,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=1.4'
+          'ServiceWorker.js?v=1.5'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -122,30 +122,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "1.4";
+    const BUILD_VERSION = "1.5";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/d260a2ee35dd187d5807ff67aae883d6.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/269f891f230cf5117d0fdb74a75ce0e4.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/596f194568124e421e89df67b502e743.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/0bceee265ae2ebf93de5f7c58990b30b.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/3c180c7d060a67e0a08aebc96b82c48b.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/9f7ab1a38c44115043fff80f7c38b826.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/c481e6ef763e68e3394a852d4b1dc6d0.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/cd3de4099fcba10a00767af5fe3f0e53.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "1.4",
+      productVersion: "1.5",
       showBanner: unityShowBanner,
     };
 
@@ -777,6 +777,44 @@
           setTimeout(applyRoleToActiveInput, 80);
           setTimeout(applyRoleToActiveInput, 150);
           setTimeout(applyRoleToActiveInput, 300);
+        },
+
+        requestSavedCredentials: async function (gameObjectName, callbackMethodName) {
+          try {
+            if (!window.PasswordCredential) {
+              alert("PasswordCredential not supported in this browser");
+              return;
+            }
+
+            if (!navigator.credentials || !navigator.credentials.get) {
+              alert("navigator.credentials.get not supported");
+              return;
+            }
+
+            const credential = await navigator.credentials.get({
+              password: true,
+              mediation: "optional"
+            });
+
+            if (!credential) {
+              return;
+            }
+
+            const payload = JSON.stringify({
+              username: credential.id || "",
+              password: credential.password || ""
+            });
+
+            if (window.unityInstance) {
+              window.unityInstance.SendMessage(
+                gameObjectName,
+                callbackMethodName,
+                payload
+              );
+            }
+          } catch (e) {
+            alert("Credential get failed: " + e.message);
+          }
         },
 
         applyToInput: function (input) {
