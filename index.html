@@ -76,7 +76,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=0.8'
+          'ServiceWorker.js?v=0.9'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -122,30 +122,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "0.8";
+    const BUILD_VERSION = "0.9";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/5254e6020a17de76a0008e6baa1fb9fc.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/80af9f10f33dc54de4851b7feebfb82c.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/d058a792d5ab3e5cf097c8580961d6ec.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/7e8d9233ad4104629e0f3dbba5cbbd8c.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/5097cb76c574a3f950a477d3ccec793d.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/3c180c7d060a67e0a08aebc96b82c48b.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/a82a141e6ec81a549ce5b9888845efbb.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/b0c98dc1835bf2b952339ae7b73bf0de.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "0.8",
+      productVersion: "0.9",
       showBanner: unityShowBanner,
     };
 
@@ -208,7 +208,7 @@
 
         .then((unityInstance) => {
           loadingBar.style.display = "none";
-
+          window.unityInstance = unityInstance;
 
         })
 
@@ -474,6 +474,9 @@
       function positionNativeInputAndUnityOkButton(input) {
         if (!isTextInput(input)) return;
 
+        if (window.UnityCredentialAutofill) {
+          window.UnityCredentialAutofill.applyToInput(input);
+        }
         activeInput = input;
         activeOkButton = findUnityOkButton(input);
 
@@ -628,6 +631,156 @@
         attributes: true,
         attributeFilter: ["style", "class"]
       });
+    })();
+  </script>
+  <script>
+    (function () {
+      let nextCredentialRole = null;
+
+      const FORM_ID = "unity-webgl-credential-form";
+
+      function isTextInput(el) {
+        if (!el) return false;
+
+        const tag = el.tagName ? el.tagName.toLowerCase() : "";
+        if (tag !== "input" && tag !== "textarea") return false;
+
+        const type = (el.getAttribute("type") || "").toLowerCase();
+
+        return ![
+          "hidden",
+          "checkbox",
+          "radio",
+          "file",
+          "submit",
+          "button"
+        ].includes(type);
+      }
+
+      function ensureCredentialForm() {
+        let form = document.getElementById(FORM_ID);
+        if (form) return form;
+
+        form = document.createElement("form");
+        form.id = FORM_ID;
+        form.method = "post";
+        form.action = window.location.href;
+        form.autocomplete = "on";
+
+        // Helper form for Credential Management API save prompt.
+        // Do not use display:none.
+        form.style.cssText =
+          "position:fixed;left:0;top:0;width:1px;height:1px;" +
+          "opacity:0.01;pointer-events:none;z-index:-1;";
+
+        form.innerHTML =
+          '<input id="unity-save-username" name="username" type="text" autocomplete="username">' +
+          '<input id="unity-save-password" name="password" type="password" autocomplete="current-password">' +
+          '<button type="submit">Login</button>';
+
+        document.body.appendChild(form);
+        return form;
+      }
+
+      function applyCredentialRole(input, role) {
+        if (!isTextInput(input) || !role) return;
+
+        ensureCredentialForm();
+
+        input.setAttribute("form", FORM_ID);
+        input.setAttribute("autocapitalize", "none");
+        input.setAttribute("autocorrect", "off");
+        input.setAttribute("spellcheck", "false");
+
+        if (role === "username") {
+          try {
+            input.type = "email";
+          } catch (e) {
+            input.setAttribute("type", "text");
+          }
+
+          input.id = "username";
+          input.name = "username";
+          input.autocomplete = "username";
+          input.inputMode = "email";
+          input.enterKeyHint = "next";
+        }
+
+        if (role === "current-password" || role === "password") {
+          try {
+            input.type = "password";
+          } catch (e) {
+            input.setAttribute("type", "password");
+          }
+
+          input.id = "current-password";
+          input.name = "password";
+          input.autocomplete = "current-password";
+          input.enterKeyHint = "done";
+        }
+
+        if (role === "new-password") {
+          try {
+            input.type = "password";
+          } catch (e) {
+            input.setAttribute("type", "password");
+          }
+
+          input.id = "new-password";
+          input.name = "new-password";
+          input.autocomplete = "new-password";
+          input.enterKeyHint = "done";
+        }
+      }
+
+      window.UnityCredentialAutofill = {
+        setNextRole: function (role) {
+          nextCredentialRole = role;
+
+          if (isTextInput(document.activeElement)) {
+            applyCredentialRole(document.activeElement, nextCredentialRole);
+          }
+        },
+
+        applyToInput: function (input) {
+          if (!nextCredentialRole) return;
+          applyCredentialRole(input, nextCredentialRole);
+        },
+
+        saveCredentials: async function (username, password) {
+          if (!username || !password) return;
+
+          const form = ensureCredentialForm();
+
+          form.querySelector("#unity-save-username").value = username;
+          form.querySelector("#unity-save-password").value = password;
+
+          // Works only where Credential Management API is supported.
+          // Must be called after real successful login.
+          try {
+            if (
+              window.PasswordCredential &&
+              navigator.credentials &&
+              navigator.credentials.store
+            ) {
+              const credential = new PasswordCredential(form);
+              await navigator.credentials.store(credential);
+            }
+          } catch (e) {
+            // Browser may block or not support it. Normal autofill can still work.
+          }
+        }
+      };
+
+      document.addEventListener(
+        "focusin",
+        function (event) {
+          if (isTextInput(event.target) && nextCredentialRole) {
+            applyCredentialRole(event.target, nextCredentialRole);
+          }
+        },
+        true
+      );
     })();
   </script>
 </body>
