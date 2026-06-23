@@ -76,7 +76,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=1.2'
+          'ServiceWorker.js?v=1.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -122,30 +122,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "1.2";
+    const BUILD_VERSION = "1.3";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/80af9f10f33dc54de4851b7feebfb82c.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/d260a2ee35dd187d5807ff67aae883d6.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/3f196d11033bbf3d57bbf50697e97b5e.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/0a339071d235b831b328008873bd4cc0.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/3c180c7d060a67e0a08aebc96b82c48b.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/b0c98dc1835bf2b952339ae7b73bf0de.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/c481e6ef763e68e3394a852d4b1dc6d0.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "1.2",
+      productVersion: "1.3",
       showBanner: unityShowBanner,
     };
 
@@ -667,7 +667,7 @@
         form.action = window.location.href;
         form.autocomplete = "on";
 
-        // Helper form for Credential Management API save prompt.
+        // Helper form for password-manager field grouping.
         // Do not use display:none.
         form.style.cssText =
           "position:fixed;left:0;top:0;width:1px;height:1px;" +
@@ -682,12 +682,33 @@
         return form;
       }
 
+      function safeSetSelectionToEnd(input) {
+        try {
+          if (!input || !input.setSelectionRange) return;
+
+          const type = (input.getAttribute("type") || "text").toLowerCase();
+
+          // Do not use email/number/date etc. Unity may call setSelectionRange().
+          const supportedTypes = ["text", "search", "tel", "url", "password"];
+
+          if (!supportedTypes.includes(type)) return;
+
+          const len = input.value ? input.value.length : 0;
+          input.setSelectionRange(len, len);
+        } catch (e) { }
+      }
+
       function applyCredentialRole(input, role) {
-        if (!isTextInput(input) || !role) return;
+        if (!isTextInput(input) || !role) return false;
 
         ensureCredentialForm();
 
+        const oldRole = input.getAttribute("data-unity-credential-role") || "";
+        const roleChanged = oldRole && oldRole !== role;
+
+        input.setAttribute("data-unity-credential-role", role);
         input.setAttribute("form", FORM_ID);
+
         input.setAttribute("autocapitalize", "none");
         input.setAttribute("autocorrect", "off");
         input.setAttribute("spellcheck", "false");
@@ -701,14 +722,14 @@
 
           input.id = "username";
           input.name = "username";
-          input.autocomplete = "username";
 
-          // Shows email keyboard on mobile but still supports Unity setSelectionRange()
+          input.setAttribute("id", "username");
+          input.setAttribute("name", "username");
+          input.setAttribute("autocomplete", "username");
+
+          // Shows email keyboard on mobile, but avoids Unity setSelectionRange crash.
           input.setAttribute("inputmode", "email");
 
-          input.setAttribute("autocapitalize", "none");
-          input.setAttribute("autocorrect", "off");
-          input.setAttribute("spellcheck", "false");
           input.enterKeyHint = "next";
         }
 
@@ -721,7 +742,11 @@
 
           input.id = "current-password";
           input.name = "password";
-          input.autocomplete = "current-password";
+
+          input.setAttribute("id", "current-password");
+          input.setAttribute("name", "password");
+          input.setAttribute("autocomplete", "current-password");
+
           input.enterKeyHint = "done";
         }
 
@@ -734,18 +759,78 @@
 
           input.id = "new-password";
           input.name = "new-password";
-          input.autocomplete = "new-password";
+
+          input.setAttribute("id", "new-password");
+          input.setAttribute("name", "new-password");
+          input.setAttribute("autocomplete", "new-password");
+
           input.enterKeyHint = "done";
         }
+
+        return roleChanged;
+      }
+
+      function getActiveNativeInput() {
+        const el = document.activeElement;
+        if (!isTextInput(el)) return null;
+        return el;
+      }
+
+      function applyRoleToActiveInput(forceRefocus) {
+        const input = getActiveNativeInput();
+        if (!input || !nextCredentialRole) return;
+
+        const roleChanged = applyCredentialRole(input, nextCredentialRole);
+
+        if (!forceRefocus || !roleChanged) return;
+
+        // Chrome often checks password-manager suggestions only on focus.
+        // When Unity reuses the same input, role can change while already focused.
+        // This small blur/focus makes Chrome re-check the updated attributes.
+        setTimeout(function () {
+          if (!document.body.contains(input)) return;
+
+          try {
+            input.blur();
+          } catch (e) { }
+
+          setTimeout(function () {
+            if (!document.body.contains(input)) return;
+
+            try {
+              input.focus({ preventScroll: true });
+            } catch (e) {
+              try {
+                input.focus();
+              } catch (err) { }
+            }
+
+            safeSetSelectionToEnd(input);
+            window.scrollTo(0, 0);
+          }, 30);
+        }, 30);
       }
 
       window.UnityCredentialAutofill = {
         setNextRole: function (role) {
           nextCredentialRole = role;
 
-          if (isTextInput(document.activeElement)) {
-            applyCredentialRole(document.activeElement, nextCredentialRole);
-          }
+          // Unity may create/reuse the native input slightly after pointer/select.
+          requestAnimationFrame(function () {
+            applyRoleToActiveInput(true);
+          });
+
+          setTimeout(function () {
+            applyRoleToActiveInput(true);
+          }, 50);
+
+          setTimeout(function () {
+            applyRoleToActiveInput(false);
+          }, 150);
+
+          setTimeout(function () {
+            applyRoleToActiveInput(false);
+          }, 300);
         },
 
         applyToInput: function (input) {
@@ -753,6 +838,7 @@
           applyCredentialRole(input, nextCredentialRole);
         },
 
+        // KEEPING YOUR WORKING SAVE FLOW SAME
         saveCredentials: async function (username, password) {
           username = (username || "").trim();
           password = password || "";
