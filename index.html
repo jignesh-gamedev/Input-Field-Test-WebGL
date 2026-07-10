@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=1.7'
+          'ServiceWorker.js?v=1.8'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "1.7";
+    const BUILD_VERSION = "1.8";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/311bd278cffa87d31639dedd3fb1590a.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/8a99ce95c3e646d0fb844a2388687b52.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/ad598ec57131b6cbe79f263cd92322f4.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/9f7ab1a38c44115043fff80f7c38b826.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "1.7",
+      productVersion: "1.8",
       showBanner: unityShowBanner,
     };
 
@@ -513,20 +513,53 @@
         activeInput = input;
         activeOkButton = findUnityOkButton(input);
 
-        const keyboardHeight = getKeyboardHeight();
-
         const gap = 8;
         const left = 12;
         const right = 12;
         const height = 42;
         const okWidth = activeOkButton ? 64 : 0;
-        const bottom = keyboardHeight + gap;
+
+        // In normal Chrome browser, the visual viewport and keyboard edge can differ
+        // from installed web app mode. So position the native input using top
+        // inside the visible viewport instead of bottom from the layout viewport.
+        const isStandalone =
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+          window.navigator.standalone === true;
+
+        const isChromeBrowser =
+          /Chrome/i.test(navigator.userAgent) && !isStandalone;
+
+        // Increase this value if the native input still touches the keyboard in Chrome.
+        // Installed web app mode keeps this as 0.
+        const chromeBrowserExtraLift = isChromeBrowser ? 40 : 0;
+
+        let inputTop;
+
+        if (window.visualViewport) {
+          inputTop =
+            window.visualViewport.offsetTop +
+            window.visualViewport.height -
+            height -
+            gap -
+            chromeBrowserExtraLift;
+        } else {
+          const keyboardHeight = getKeyboardHeight();
+
+          inputTop =
+            window.innerHeight -
+            keyboardHeight -
+            height -
+            gap -
+            chromeBrowserExtraLift;
+        }
+
+        inputTop = Math.max(0, Math.round(inputTop));
 
         input.style.setProperty("position", "fixed", "important");
         input.style.setProperty("left", left + "px", "important");
         input.style.setProperty("right", (right + okWidth) + "px", "important");
-        input.style.setProperty("bottom", bottom + "px", "important");
-        input.style.setProperty("top", "auto", "important");
+        input.style.setProperty("top", inputTop + "px", "important");
+        input.style.setProperty("bottom", "auto", "important");
 
         input.style.setProperty("width", "calc(100vw - " + (left + right + okWidth) + "px)", "important");
         input.style.setProperty("height", height + "px", "important");
@@ -550,8 +583,8 @@
         if (activeOkButton) {
           activeOkButton.style.setProperty("position", "fixed", "important");
           activeOkButton.style.setProperty("right", right + "px", "important");
-          activeOkButton.style.setProperty("bottom", bottom + "px", "important");
-          activeOkButton.style.setProperty("top", "auto", "important");
+          activeOkButton.style.setProperty("top", inputTop + "px", "important");
+          activeOkButton.style.setProperty("bottom", "auto", "important");
           activeOkButton.style.setProperty("left", "auto", "important");
 
           activeOkButton.style.setProperty("width", okWidth + "px", "important");
