@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=2.0'
+          'ServiceWorker.js?v=2.1'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "2.0";
+    const BUILD_VERSION = "2.1";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/311bd278cffa87d31639dedd3fb1590a.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/514ba5d5634e351b70a781f3b717fdb7.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/25e041187d6839ef03030dfa340d3066.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/9f7ab1a38c44115043fff80f7c38b826.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "2.0",
+      productVersion: "2.1",
       showBanner: unityShowBanner,
     };
 
@@ -404,6 +404,25 @@
       const INPUT_BORDER_WIDTH = "1px";
       const INPUT_BORDER_STYLE = INPUT_BORDER_WIDTH + " solid " + INPUT_BORDER_COLOR;
 
+      // Extra lift for normal Chrome browser only.
+      // Installed web app/PWA mode keeps the original position.
+      // Increase this to 48 or 56 if the input still touches the keyboard.
+      const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
+
+      function isInstalledWebAppMode() {
+        return (
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+          window.navigator.standalone === true
+        );
+      }
+
+      function isNormalChromeBrowser() {
+        const ua = navigator.userAgent || "";
+        const isChrome = /Chrome|CriOS/i.test(ua);
+        const isOtherChromium = /Edg|OPR|SamsungBrowser/i.test(ua);
+        return isChrome && !isOtherChromium && !isInstalledWebAppMode();
+      }
+
       function isTextInput(el) {
         if (!el) return false;
 
@@ -446,19 +465,21 @@
       }
 
       function getKeyboardHeight() {
+        let height = 0;
+
         if ("virtualKeyboard" in navigator && navigator.virtualKeyboard.boundingRect) {
           const rect = navigator.virtualKeyboard.boundingRect;
           if (rect && rect.height > 0) {
-            return rect.height;
+            height = rect.height;
           }
         }
 
-        if (window.visualViewport) {
+        if (height <= 0 && window.visualViewport) {
           const viewport = window.visualViewport;
-          return Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+          height = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
         }
 
-        return 0;
+        return height;
       }
 
       function findUnityOkButton(input) {
@@ -520,7 +541,12 @@
         const right = 12;
         const height = 42;
         const okWidth = activeOkButton ? 64 : 0;
-        const bottom = keyboardHeight + gap;
+
+        // Use bottom-based positioning.
+        // The previous top/visualViewport approach can place the input under the keyboard
+        // when interactive-widget=overlays-content is active.
+        const extraLift = isNormalChromeBrowser() ? CHROME_BROWSER_INPUT_EXTRA_LIFT : 0;
+        const bottom = Math.max(gap, keyboardHeight + gap + extraLift);
 
         input.style.setProperty("position", "fixed", "important");
         input.style.setProperty("left", left + "px", "important");
