@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=2.1'
+          'ServiceWorker.js?v=2.2'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "2.1";
+    const BUILD_VERSION = "2.2";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/311bd278cffa87d31639dedd3fb1590a.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/25e041187d6839ef03030dfa340d3066.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/172f3c385730f47fdb8deaac3819dc5d.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/9f7ab1a38c44115043fff80f7c38b826.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "2.1",
+      productVersion: "2.2",
       showBanner: unityShowBanner,
     };
 
@@ -409,10 +409,17 @@
       // Increase this to 48 or 56 if the input still touches the keyboard.
       const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
 
-      function isInstalledWebAppMode() {
+      function isInstalledWebApp() {
+        const params = new URLSearchParams(window.location.search);
+
+        if (params.get("pwa") === "1") return true;
+        if (params.get("pwa") === "0") return false;
+
         return (
+          (window.matchMedia && window.matchMedia("(display-mode: fullscreen)").matches) ||
           (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
-          window.navigator.standalone === true
+          window.navigator.standalone === true ||
+          (document.referrer && document.referrer.indexOf("android-app://") === 0)
         );
       }
 

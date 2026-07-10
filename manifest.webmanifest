@@ -1,15 +1,32 @@
 {
-    "name": "WebGL InputField Test",
-    "short_name": "WebGL InputField Test",
-    "start_url": "index.html",
-    "display": "fullscreen",
-    "background_color": "#231F20",
-    "theme_color": "#000",
-    "description": "",
-    "icons": [{
+  "name": {
+    {
+      { JSON.stringify(PRODUCT_NAME)
+      }
+    }
+  },
+  "short_name": {
+    {
+      { JSON.stringify(PRODUCT_NAME)
+      }
+    }
+  },
+  "start_url": "index.html?pwa=1",
+  "display": "fullscreen",
+  "background_color": "#231F20",
+  "theme_color": "#000",
+  "description": {
+    {
+      { JSON.stringify(PRODUCT_DESCRIPTION)
+      }
+    }
+  },
+  "icons": [
+    {
       "src": "TemplateData/icons/unity-logo-dark.png",
       "sizes": "144x144",
       "type": "image/png",
       "purpose": "any maskable"
-    }]
-  }
+    }
+  ]
+}
