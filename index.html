@@ -5,13 +5,15 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 
-  <title>Unity Web Player | WebGL InputField Test</title>
+
+  <title>WebGL InputField Test</title>
 
   <link rel="shortcut icon" href="TemplateData/favicon.ico">
   <link rel="stylesheet" href="TemplateData/style.css">
   <link rel="manifest" href="manifest.webmanifest">
 
 
+  <!-- ANDROID KEYBOARD FIX -->
   <style>
     html,
     body {
@@ -31,16 +33,14 @@
       position: fixed !important;
       left: 0;
       top: 0;
-      right: 0;
-      bottom: 0;
       overflow: hidden !important;
       width: 100vw !important;
-      height: 100vh !important;
+      height: var(--unity-visible-height, 100dvh) !important;
     }
 
     #unity-canvas {
-      width: 100% !important;
-      height: 100% !important;
+      width: 100vw !important;
+      height: var(--unity-visible-height, 100dvh) !important;
       display: block;
     }
 
@@ -60,8 +60,9 @@
     </canvas>
 
     <div id="unity-loading-bar">
-      <div id="unity-logo"></div>
-
+      <div id="unity-logo">
+        <img id="unity-loading-gif" src="TemplateData/CrangleLoading.gif" alt="Loading">
+      </div>
       <div id="unity-progress-bar-empty">
         <div id="unity-progress-bar-full"></div>
       </div>
@@ -73,10 +74,11 @@
   </div>
 
   <script>
+
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=1.6'
+          'ServiceWorker.js?v=1.7'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -122,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "1.6";
+    const BUILD_VERSION = "1.7";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/e4a37fe103f9187d2dba42af76f46adc.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/311bd278cffa87d31639dedd3fb1590a.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/21c4c94111fd91e60c34cdfd464ee28f.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/8a99ce95c3e646d0fb844a2388687b52.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/9f7ab1a38c44115043fff80f7c38b826.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/c8dc31e45471c5a76eddae9fc28a62bf.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/56933640182bd5aabe8dfd64ffd88152.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "1.6",
+      productVersion: "1.7",
       showBanner: unityShowBanner,
     };
 
@@ -158,7 +160,7 @@
       var meta = document.createElement('meta');
       meta.name = 'viewport';
       // 'interactive-widget=overlays-content' prevents canvas from shifting up when virtual keyboard opens
-      meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes, interactive-widget=overlays-content';
+      meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content';
       document.getElementsByTagName('head')[0].appendChild(meta);
 
       // Fallback: lock canvas height when virtual keyboard opens (older browsers that ignore interactive-widget)
@@ -167,7 +169,9 @@
 
       // Store the true viewport height before any keyboard appears
       window.addEventListener("load", function () {
-        lockedHeight = window.innerHeight;
+        lockedHeight = window.visualViewport
+          ? window.visualViewport.height
+          : window.innerHeight;
         canvas.style.height = lockedHeight + "px";
         document.body.style.height = lockedHeight + "px";
         document.getElementById("unity-container").style.height = lockedHeight + "px";
@@ -208,7 +212,7 @@
 
         .then((unityInstance) => {
           loadingBar.style.display = "none";
-          window.unityInstance = unityInstance;
+
 
         })
 
@@ -222,11 +226,42 @@
   </script>
   <script>
     (function () {
+      function setUnityVisibleHeight() {
+        let height = window.innerHeight;
+
+        if (window.visualViewport) {
+          height = window.visualViewport.height;
+        }
+
+        document.documentElement.style.setProperty(
+          "--unity-visible-height",
+          height + "px"
+        );
+      }
+
+      window.addEventListener("load", setUnityVisibleHeight);
+      window.addEventListener("resize", setUnityVisibleHeight);
+      window.addEventListener("orientationchange", function () {
+        setTimeout(setUnityVisibleHeight, 300);
+      });
+
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", setUnityVisibleHeight);
+        window.visualViewport.addEventListener("scroll", setUnityVisibleHeight);
+      }
+
+      setUnityVisibleHeight();
+    })();
+  </script>
+  <script>
+    (function () {
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       if (!isMobile) return;
 
       let lockedWidth = window.innerWidth;
-      let lockedHeight = window.innerHeight;
+      let lockedHeight = window.visualViewport
+        ? window.visualViewport.height
+        : window.innerHeight;
 
       function getUnityContainer() {
         return document.querySelector("#unity-container");
@@ -364,8 +399,9 @@
 
       let activeInput = null;
       let activeOkButton = null;
+
       const INPUT_BORDER_COLOR = "#39A3D0";
-      const INPUT_BORDER_WIDTH = "2px";
+      const INPUT_BORDER_WIDTH = "1px";
       const INPUT_BORDER_STYLE = INPUT_BORDER_WIDTH + " solid " + INPUT_BORDER_COLOR;
 
       function isTextInput(el) {
@@ -627,485 +663,6 @@
         subtree: true,
         attributes: true,
         attributeFilter: ["style", "class"]
-      });
-    })();
-  </script>
-  <script>
-    (function () {
-      let nextCredentialRole = null;
-
-      const FORM_ID = "unity-webgl-credential-form";
-
-      function isIOSBrowser() {
-        return (
-          /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-        );
-      }
-
-      function isTextInput(el) {
-        if (!el) return false;
-
-        const tag = el.tagName ? el.tagName.toLowerCase() : "";
-        if (tag !== "input" && tag !== "textarea") return false;
-
-        const type = (el.getAttribute("type") || "").toLowerCase();
-
-        return ![
-          "hidden",
-          "checkbox",
-          "radio",
-          "file",
-          "submit",
-          "button"
-        ].includes(type);
-      }
-
-      function ensureCredentialForm() {
-        let form = document.getElementById(FORM_ID);
-        if (form) return form;
-
-        form = document.createElement("form");
-        form.id = FORM_ID;
-        form.method = "post";
-        form.action = window.location.href;
-        form.autocomplete = "on";
-
-        form.style.cssText =
-          "position:fixed;left:0;top:0;width:1px;height:1px;" +
-          "opacity:0.01;pointer-events:none;z-index:-1;";
-
-        form.innerHTML =
-          '<input id="unity-save-username" name="username" type="text" autocomplete="username">' +
-          '<input id="unity-save-password" name="password" type="password" autocomplete="current-password">' +
-          '<button type="submit">Login</button>';
-
-        document.body.appendChild(form);
-        return form;
-      }
-
-      function ensureIOSHiddenFrame() {
-        let frame = document.getElementById("ios-password-save-frame");
-        if (frame) return frame;
-
-        frame = document.createElement("iframe");
-        frame.id = "ios-password-save-frame";
-        frame.name = "ios-password-save-frame";
-        frame.style.cssText =
-          "position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;border:0;";
-
-        document.body.appendChild(frame);
-        return frame;
-      }
-
-      function createIOSBaseOverlay(id, html) {
-        let overlay = document.getElementById(id);
-
-        if (!overlay) {
-          overlay = document.createElement("div");
-          overlay.id = id;
-
-          overlay.style.cssText =
-            "position:fixed;left:0;top:0;width:100vw;height:100vh;" +
-            "background:rgba(0,0,0,0.65);z-index:2147483647;" +
-            "display:none;align-items:center;justify-content:center;" +
-            "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" +
-            "touch-action:auto;";
-
-          overlay.innerHTML = html;
-
-          overlay.addEventListener(
-            "touchmove",
-            function (e) {
-              e.stopPropagation();
-            },
-            { passive: true }
-          );
-
-          document.body.appendChild(overlay);
-        }
-
-        return overlay;
-      }
-
-      function openIOSSaveCredentialOverlay(username, password) {
-        username = (username || "").trim();
-        password = password || "";
-
-        if (!username || !password) {
-          alert("Missing username or password");
-          return;
-        }
-
-        ensureIOSHiddenFrame();
-
-        const overlay = createIOSBaseOverlay(
-          "ios-save-credential-overlay",
-          `
-        <form id="ios-save-credential-form"
-              method="post"
-              autocomplete="on"
-              target="ios-password-save-frame"
-              action=""
-              style="width:86vw;max-width:360px;background:white;border-radius:16px;padding:20px;box-sizing:border-box;">
-
-          <div style="font-size:20px;font-weight:700;margin-bottom:8px;color:#111;">
-            Save Login
-          </div>
-
-          <div style="font-size:14px;line-height:20px;color:#555;margin-bottom:14px;">
-            Tap Continue so iOS can offer to save this login.
-          </div>
-
-          <input id="ios-save-username"
-                 name="username"
-                 type="text"
-                 autocomplete="username"
-                 inputmode="email"
-                 autocapitalize="none"
-                 autocorrect="off"
-                 spellcheck="false"
-                 placeholder="Username or email"
-                 style="width:100%;height:46px;font-size:16px;margin-bottom:12px;padding:0 12px;box-sizing:border-box;border:1px solid #ccc;border-radius:8px;color:#111;background:#fff;">
-
-          <input id="ios-save-password"
-                 name="password"
-                 type="password"
-                 autocomplete="current-password"
-                 placeholder="Password"
-                 style="width:100%;height:46px;font-size:16px;margin-bottom:16px;padding:0 12px;box-sizing:border-box;border:1px solid #ccc;border-radius:8px;color:#111;background:#fff;">
-
-          <button type="submit"
-                  style="width:100%;height:46px;font-size:16px;font-weight:600;border:0;border-radius:8px;background:#1677ff;color:white;">
-            Continue
-          </button>
-
-          <button type="button"
-                  id="ios-save-cancel"
-                  style="width:100%;height:42px;font-size:15px;margin-top:8px;border:0;background:transparent;color:#555;">
-            Cancel
-          </button>
-        </form>
-        `
-        );
-
-        const form = document.getElementById("ios-save-credential-form");
-        const usernameInput = document.getElementById("ios-save-username");
-        const passwordInput = document.getElementById("ios-save-password");
-        const cancelButton = document.getElementById("ios-save-cancel");
-
-        form.action = window.location.href.split("#")[0];
-        usernameInput.value = username;
-        passwordInput.value = password;
-
-        overlay.style.display = "flex";
-
-        setTimeout(function () {
-          try {
-            passwordInput.focus();
-          } catch (e) { }
-        }, 150);
-
-        cancelButton.onclick = function () {
-          overlay.style.display = "none";
-          window.scrollTo(0, 0);
-        };
-
-        form.onsubmit = function () {
-          /*
-            Important:
-            Do NOT preventDefault here.
-            iOS needs a real user-submitted HTML form attempt.
-            The form targets a hidden iframe so the Unity page does not navigate.
-          */
-
-          setTimeout(function () {
-            overlay.style.display = "none";
-            window.scrollTo(0, 0);
-          }, 800);
-        };
-      }
-
-      function openIOSRequestCredentialOverlay(gameObjectName, callbackMethodName) {
-        const overlay = createIOSBaseOverlay(
-          "ios-request-credential-overlay",
-          `
-        <form id="ios-request-credential-form"
-              method="post"
-              autocomplete="on"
-              style="width:86vw;max-width:360px;background:white;border-radius:16px;padding:20px;box-sizing:border-box;">
-
-          <div style="font-size:20px;font-weight:700;margin-bottom:8px;color:#111;">
-            Use Saved Login
-          </div>
-
-          <div style="font-size:14px;line-height:20px;color:#555;margin-bottom:14px;">
-            Select your saved login from the iOS keyboard or Password AutoFill.
-          </div>
-
-          <input id="ios-request-username"
-                 name="username"
-                 type="text"
-                 autocomplete="username"
-                 inputmode="email"
-                 autocapitalize="none"
-                 autocorrect="off"
-                 spellcheck="false"
-                 placeholder="Username or email"
-                 style="width:100%;height:46px;font-size:16px;margin-bottom:12px;padding:0 12px;box-sizing:border-box;border:1px solid #ccc;border-radius:8px;color:#111;background:#fff;">
-
-          <input id="ios-request-password"
-                 name="password"
-                 type="password"
-                 autocomplete="current-password"
-                 placeholder="Password"
-                 style="width:100%;height:46px;font-size:16px;margin-bottom:16px;padding:0 12px;box-sizing:border-box;border:1px solid #ccc;border-radius:8px;color:#111;background:#fff;">
-
-          <button type="submit"
-                  style="width:100%;height:46px;font-size:16px;font-weight:600;border:0;border-radius:8px;background:#1677ff;color:white;">
-            Continue
-          </button>
-
-          <button type="button"
-                  id="ios-request-cancel"
-                  style="width:100%;height:42px;font-size:15px;margin-top:8px;border:0;background:transparent;color:#555;">
-            Cancel
-          </button>
-        </form>
-        `
-        );
-
-        const form = document.getElementById("ios-request-credential-form");
-        const usernameInput = document.getElementById("ios-request-username");
-        const passwordInput = document.getElementById("ios-request-password");
-        const cancelButton = document.getElementById("ios-request-cancel");
-
-        usernameInput.value = "";
-        passwordInput.value = "";
-
-        overlay.style.display = "flex";
-
-        setTimeout(function () {
-          try {
-            usernameInput.focus();
-          } catch (e) { }
-        }, 150);
-
-        cancelButton.onclick = function () {
-          overlay.style.display = "none";
-          window.scrollTo(0, 0);
-        };
-
-        form.onsubmit = function (e) {
-          e.preventDefault();
-
-          const payload = JSON.stringify({
-            username: usernameInput.value || "",
-            password: passwordInput.value || ""
-          });
-
-          overlay.style.display = "none";
-          window.scrollTo(0, 0);
-
-          if (window.unityInstance) {
-            window.unityInstance.SendMessage(
-              gameObjectName,
-              callbackMethodName,
-              payload
-            );
-          }
-        };
-      }
-
-      function applyCredentialRole(input, role) {
-        if (!isTextInput(input) || !role) return;
-
-        ensureCredentialForm();
-
-        input.setAttribute("form", FORM_ID);
-        input.setAttribute("data-unity-credential-role", role);
-
-        input.setAttribute("autocapitalize", "none");
-        input.setAttribute("autocorrect", "off");
-        input.setAttribute("spellcheck", "false");
-
-        if (role === "username") {
-          try {
-            input.type = "text";
-          } catch (e) {
-            input.setAttribute("type", "text");
-          }
-
-          input.id = "username";
-          input.name = "username";
-
-          input.setAttribute("id", "username");
-          input.setAttribute("name", "username");
-          input.setAttribute("autocomplete", "username");
-
-          input.setAttribute("inputmode", "email");
-
-          input.setAttribute("aria-label", "Username");
-          input.enterKeyHint = "next";
-        }
-
-        if (role === "current-password" || role === "password") {
-          try {
-            input.type = "password";
-          } catch (e) {
-            input.setAttribute("type", "password");
-          }
-
-          input.id = "current-password";
-          input.name = "password";
-
-          input.setAttribute("id", "current-password");
-          input.setAttribute("name", "password");
-          input.setAttribute("autocomplete", "current-password");
-
-          input.setAttribute("aria-label", "Password");
-          input.enterKeyHint = "done";
-        }
-
-        if (role === "new-password") {
-          try {
-            input.type = "password";
-          } catch (e) {
-            input.setAttribute("type", "password");
-          }
-
-          input.id = "new-password";
-          input.name = "new-password";
-
-          input.setAttribute("id", "new-password");
-          input.setAttribute("name", "new-password");
-          input.setAttribute("autocomplete", "new-password");
-
-          input.setAttribute("aria-label", "New Password");
-          input.enterKeyHint = "done";
-        }
-      }
-
-      function getActiveNativeInput() {
-        const el = document.activeElement;
-        if (!isTextInput(el)) return null;
-        return el;
-      }
-
-      function applyRoleToActiveInput() {
-        const input = getActiveNativeInput();
-        if (!input || !nextCredentialRole) return;
-
-        applyCredentialRole(input, nextCredentialRole);
-      }
-
-      window.UnityCredentialAutofill = {
-        setNextRole: function (role) {
-          nextCredentialRole = role;
-
-          requestAnimationFrame(applyRoleToActiveInput);
-
-          setTimeout(applyRoleToActiveInput, 30);
-          setTimeout(applyRoleToActiveInput, 80);
-          setTimeout(applyRoleToActiveInput, 150);
-          setTimeout(applyRoleToActiveInput, 300);
-        },
-
-        requestSavedCredentials: async function (gameObjectName, callbackMethodName) {
-          try {
-            if (isIOSBrowser() || !window.PasswordCredential) {
-              openIOSRequestCredentialOverlay(gameObjectName, callbackMethodName);
-              return;
-            }
-
-            if (!navigator.credentials || !navigator.credentials.get) {
-              alert("navigator.credentials.get not supported");
-              return;
-            }
-
-            const credential = await navigator.credentials.get({
-              password: true,
-              mediation: "optional"
-            });
-
-            if (!credential) {
-              return;
-            }
-
-            const payload = JSON.stringify({
-              username: credential.id || "",
-              password: credential.password || ""
-            });
-
-            if (window.unityInstance) {
-              window.unityInstance.SendMessage(
-                gameObjectName,
-                callbackMethodName,
-                payload
-              );
-            }
-          } catch (e) {
-            alert("Credential get failed: " + e.message);
-          }
-        },
-
-        applyToInput: function (input) {
-          if (!nextCredentialRole) return;
-          applyCredentialRole(input, nextCredentialRole);
-        },
-
-        saveCredentials: async function (username, password) {
-          username = (username || "").trim();
-          password = password || "";
-
-          if (!username || !password) {
-            alert("Missing username or password");
-            return;
-          }
-
-          try {
-            if (isIOSBrowser() || !window.PasswordCredential) {
-              openIOSSaveCredentialOverlay(username, password);
-              return;
-            }
-
-            if (!navigator.credentials || !navigator.credentials.store) {
-              alert("navigator.credentials.store not supported");
-              return;
-            }
-
-            const credential = new PasswordCredential({
-              id: username,
-              name: username,
-              password: password
-            });
-
-            await navigator.credentials.store(credential);
-
-            alert("Credential store called successfully. Now reload and test autofill.");
-          } catch (e) {
-            alert("Credential store failed: " + e.message);
-          }
-        }
-      };
-
-      document.addEventListener(
-        "focusin",
-        function (event) {
-          if (isTextInput(event.target) && nextCredentialRole) {
-            applyCredentialRole(event.target, nextCredentialRole);
-          }
-        },
-        true
-      );
-
-      const observer = new MutationObserver(function () {
-        applyRoleToActiveInput();
-      });
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true
       });
     })();
   </script>
