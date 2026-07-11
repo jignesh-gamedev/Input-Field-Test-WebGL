@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=4.2'
+          'ServiceWorker.js?v=4.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "4.2";
+    const BUILD_VERSION = "4.3";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/8899036d7dd3d98ccbed3a6444177c09.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/cf1f47e9be647c5515becf51c6dd0b7e.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "4.2",
+      productVersion: "4.3",
       showBanner: unityShowBanner,
     };
 
@@ -477,10 +477,10 @@
 
       // Android Facebook Messenger / Facebook in-app browser fallback.
       // Used only when visualViewport/VirtualKeyboard reports keyboard height as 0.
-      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MIN = 300;
-      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MAX = 460;
-      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_RATIO = 0.42;
-      const ANDROID_MESSENGER_INPUT_EXTRA_LIFT = 12;
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MIN = 340;
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MAX = 540;
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_RATIO = 0.48;
+      const ANDROID_MESSENGER_INPUT_EXTRA_LIFT = 52;
 
       // iOS Safari / installed Web App fallback. Increase ratio/extra only if Safari is still too low.
       const IOS_FALLBACK_KEYBOARD_MIN = 280;
@@ -1038,6 +1038,24 @@
         }
       }
 
+      function immediateMessengerFocusFromUserGesture() {
+        if (!isAndroidFacebookInAppBrowser) return;
+
+        lastUserGestureAt = Date.now();
+
+        const candidate = findCandidateInput();
+        if (!candidate) return;
+
+        activeInput = candidate;
+        keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 4200);
+
+        // This must run synchronously inside the real user gesture.
+        // Android Messenger often blocks keyboard opening when focus happens
+        // from requestAnimationFrame/setTimeout after Unity creates the input.
+        focusInputForAndroidMessenger(candidate);
+        positionNativeInputAndUnityOkButton(candidate);
+      }
+
       document.addEventListener(
         "focusin",
         function (event) {
@@ -1089,6 +1107,13 @@
         },
         true
       );
+
+      // Bubble-phase listeners run after Unity's canvas handlers in many WebViews.
+      // This gives Messenger a better chance to focus the Unity-created native input
+      // during the same trusted tap, which can open the keyboard on the first tap.
+      document.addEventListener("touchend", immediateMessengerFocusFromUserGesture, false);
+      document.addEventListener("mouseup", immediateMessengerFocusFromUserGesture, false);
+      document.addEventListener("click", immediateMessengerFocusFromUserGesture, false);
 
       document.addEventListener(
         "focusout",
