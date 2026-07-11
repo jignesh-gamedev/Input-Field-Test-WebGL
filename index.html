@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=2.5'
+          'ServiceWorker.js?v=2.6'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "2.5";
+    const BUILD_VERSION = "2.6";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/311bd278cffa87d31639dedd3fb1590a.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/8ce0794b2ae5e3e1b6370414abceed9e.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/56c13d355084a8d531407e738f0c1ae5.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/9f7ab1a38c44115043fff80f7c38b826.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "2.5",
+      productVersion: "2.6",
       showBanner: unityShowBanner,
     };
 
@@ -425,9 +425,13 @@
 
       function isNormalChromeBrowser() {
         const ua = navigator.userAgent || "";
-        const isChrome = /Chrome|CriOS/i.test(ua);
-        const isOtherChromium = /Edg|OPR|SamsungBrowser/i.test(ua);
-        return isChrome && !isOtherChromium && !isInstalledWebAppMode();
+
+        const isAndroidChrome =
+          /Android/i.test(ua) &&
+          /Chrome\/\d+/i.test(ua) &&
+          !/SamsungBrowser|EdgA|OPR|Firefox|FxiOS/i.test(ua);
+
+        return isAndroidChrome && !isInstalledWebApp();
       }
 
       function isTextInput(el) {
