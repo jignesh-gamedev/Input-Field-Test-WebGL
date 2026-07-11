@@ -1,9 +1,8 @@
 {
   "name": "WebGL InputField Test",
   "short_name": "WebGL InputField Test",
-  "start_url": "index.html?pwa=1",
+  "start_url": "index.html",
   "scope": "./",
-  "id": "./",
   "display": "fullscreen",
   "background_color": "#231F20",
   "theme_color": "#000",
