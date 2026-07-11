@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=4.3'
+          'ServiceWorker.js?v=4.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "4.3";
+    const BUILD_VERSION = "4.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/cf1f47e9be647c5515becf51c6dd0b7e.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/1fcc07974b66b08a001b9446192da424.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "4.3",
+      productVersion: "4.4",
       showBanner: unityShowBanner,
     };
 
@@ -477,10 +477,10 @@
 
       // Android Facebook Messenger / Facebook in-app browser fallback.
       // Used only when visualViewport/VirtualKeyboard reports keyboard height as 0.
-      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MIN = 340;
-      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MAX = 540;
-      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_RATIO = 0.48;
-      const ANDROID_MESSENGER_INPUT_EXTRA_LIFT = 52;
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MIN = 300;
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MAX = 430;
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_RATIO = 0.42;
+      const ANDROID_MESSENGER_INPUT_EXTRA_LIFT = 20;
 
       // iOS Safari / installed Web App fallback. Increase ratio/extra only if Safari is still too low.
       const IOS_FALLBACK_KEYBOARD_MIN = 280;
@@ -1192,6 +1192,147 @@
         attributes: true,
         attributeFilter: ["style", "class", "value"]
       });
+    })();
+  </script>
+  <script>
+    (function () {
+      const ua = navigator.userAgent || "";
+
+      const isAndroid = /Android/i.test(ua);
+
+      const isMessengerInAppBrowser =
+        /FBAN|FBAV|FB_IAB|MessengerForAndroid|Orca-Android/i.test(ua);
+
+      if (!isAndroid || !isMessengerInAppBrowser) return;
+
+      let proxyInput = null;
+      let proxyActiveUntil = 0;
+
+      function isTextInput(el) {
+        if (!el || !el.tagName) return false;
+
+        const tag = el.tagName.toLowerCase();
+        if (tag !== "input" && tag !== "textarea") return false;
+
+        const type = (el.getAttribute("type") || "").toLowerCase();
+
+        return !(
+          type === "hidden" ||
+          type === "checkbox" ||
+          type === "radio" ||
+          type === "file" ||
+          type === "submit" ||
+          type === "button"
+        );
+      }
+
+      function getProxyInput() {
+        if (proxyInput && document.body.contains(proxyInput)) {
+          return proxyInput;
+        }
+
+        proxyInput = document.createElement("input");
+        proxyInput.type = "text";
+        proxyInput.setAttribute("autocomplete", "off");
+        proxyInput.setAttribute("autocorrect", "off");
+        proxyInput.setAttribute("autocapitalize", "off");
+        proxyInput.setAttribute("spellcheck", "false");
+
+        proxyInput.style.setProperty("position", "fixed", "important");
+        proxyInput.style.setProperty("left", "0px", "important");
+        proxyInput.style.setProperty("bottom", "0px", "important");
+        proxyInput.style.setProperty("width", "1px", "important");
+        proxyInput.style.setProperty("height", "1px", "important");
+        proxyInput.style.setProperty("font-size", "16px", "important");
+        proxyInput.style.setProperty("opacity", "0.01", "important");
+        proxyInput.style.setProperty("z-index", "1", "important");
+        proxyInput.style.setProperty("border", "0", "important");
+        proxyInput.style.setProperty("padding", "0", "important");
+        proxyInput.style.setProperty("margin", "0", "important");
+        proxyInput.style.setProperty("background", "transparent", "important");
+
+        document.body.appendChild(proxyInput);
+
+        return proxyInput;
+      }
+
+      function findUnityNativeInput() {
+        const inputs = Array.from(document.querySelectorAll("input, textarea"))
+          .filter(isTextInput)
+          .filter(function (el) {
+            if (el === proxyInput) return false;
+
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+
+            return (
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              rect.width > 20 &&
+              rect.height > 10
+            );
+          });
+
+        if (inputs.length <= 0) return null;
+
+        return inputs[inputs.length - 1];
+      }
+
+      function primeKeyboardFromUserGesture() {
+        const proxy = getProxyInput();
+
+        proxyActiveUntil = Date.now() + 1200;
+
+        try {
+          proxy.focus({ preventScroll: true });
+        } catch (e) {
+          proxy.focus();
+        }
+      }
+
+      function transferFocusToUnityInput() {
+        if (Date.now() > proxyActiveUntil) return;
+
+        const unityInput = findUnityNativeInput();
+
+        if (!unityInput) return;
+
+        try {
+          unityInput.focus({ preventScroll: true });
+        } catch (e) {
+          unityInput.focus();
+        }
+      }
+
+      document.addEventListener(
+        "touchstart",
+        function (event) {
+          if (isTextInput(event.target)) return;
+
+          // This must run directly inside the real user gesture.
+          primeKeyboardFromUserGesture();
+
+          setTimeout(transferFocusToUnityInput, 80);
+          setTimeout(transferFocusToUnityInput, 160);
+          setTimeout(transferFocusToUnityInput, 300);
+          setTimeout(transferFocusToUnityInput, 600);
+        },
+        true
+      );
+
+      document.addEventListener(
+        "pointerdown",
+        function (event) {
+          if (isTextInput(event.target)) return;
+
+          primeKeyboardFromUserGesture();
+
+          setTimeout(transferFocusToUnityInput, 80);
+          setTimeout(transferFocusToUnityInput, 160);
+          setTimeout(transferFocusToUnityInput, 300);
+        },
+        true
+      );
     })();
   </script>
   <script>
