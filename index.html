@@ -2,23 +2,11 @@
 <html lang="en-us">
 
 <head>
-  <!--<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" /> -->
   <meta charset="utf-8">
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 
-  <!-- ANDROID KEYBOARD FIX -->
-  <!-- <meta name="viewport" content="width=device-width,
-               height=device-height,
-               initial-scale=1.0,
-               maximum-scale=1.0,
-               user-scalable=no,
-               shrink-to-fit=yes,
-               viewport-fit=cover,
-               interactive-widget=overlays-content"> -->
 
-  <title>Unity Web Player | WebGL InputField Test</title>
+  <title>WebGL InputField Test</title>
 
   <link rel="shortcut icon" href="TemplateData/favicon.ico">
   <link rel="stylesheet" href="TemplateData/style.css">
@@ -45,16 +33,14 @@
       position: fixed !important;
       left: 0;
       top: 0;
-      right: 0;
-      bottom: 0;
       overflow: hidden !important;
       width: 100vw !important;
-      height: 100vh !important;
+      height: var(--unity-visible-height, 100dvh) !important;
     }
 
     #unity-canvas {
-      width: 100% !important;
-      height: 100% !important;
+      width: 100vw !important;
+      height: var(--unity-visible-height, 100dvh) !important;
       display: block;
     }
 
@@ -74,8 +60,9 @@
     </canvas>
 
     <div id="unity-loading-bar">
-      <div id="unity-logo"></div>
-
+      <div id="unity-logo">
+        <img id="unity-loading-gif" src="TemplateData/CrangleLoading.gif" alt="Loading">
+      </div>
       <div id="unity-progress-bar-empty">
         <div id="unity-progress-bar-full"></div>
       </div>
@@ -88,30 +75,10 @@
 
   <script>
 
-    // =====================================================
-    // ANDROID VIEWPORT FIX
-    // =====================================================
-
-    // function lockViewport() {
-    //   document.documentElement.style.height = window.innerHeight + "px";
-    //   document.body.style.height = window.innerHeight + "px";
-    // }
-
-    // window.addEventListener("resize", lockViewport);
-    // window.addEventListener("orientationchange", lockViewport);
-
-    // if (window.visualViewport) {
-    //   window.visualViewport.addEventListener("resize", lockViewport);
-    // }
-
-    // lockViewport();
-
-    // =====================================================
-
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=3.0'
+          'ServiceWorker.js?v=3.1'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -157,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "3.0";
+    const BUILD_VERSION = "3.1";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/311bd278cffa87d31639dedd3fb1590a.loader.js?v=" + BUILD_VERSION;
@@ -167,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/9e6b5abf4bfa5eb996aabac0a31296f4.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/8d7030b83285217451f046b9eed484b7.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/9f7ab1a38c44115043fff80f7c38b826.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -180,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "3.0",
+      productVersion: "3.1",
       showBanner: unityShowBanner,
     };
 
@@ -193,36 +160,9 @@
       var meta = document.createElement('meta');
       meta.name = 'viewport';
       // 'interactive-widget=overlays-content' prevents canvas from shifting up when virtual keyboard opens
-      meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes, interactive-widget=overlays-content';
+      meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content';
       document.getElementsByTagName('head')[0].appendChild(meta);
 
-      // Fallback: lock canvas height when virtual keyboard opens (older browsers that ignore interactive-widget)
-      var canvas = document.querySelector("#unity-canvas");
-      var lockedHeight = 0;
-
-      // Store the true viewport height before any keyboard appears
-      window.addEventListener("load", function () {
-        lockedHeight = window.innerHeight;
-        canvas.style.height = lockedHeight + "px";
-        document.body.style.height = lockedHeight + "px";
-        document.getElementById("unity-container").style.height = lockedHeight + "px";
-      });
-
-      // On resize: if height shrank → keyboard opened → restore locked height
-      window.addEventListener("resize", function () {
-        if (window.innerHeight < lockedHeight) {
-          // Keyboard opened — freeze canvas at original height
-          canvas.style.height = lockedHeight + "px";
-          document.body.style.height = lockedHeight + "px";
-          document.getElementById("unity-container").style.height = lockedHeight + "px";
-        } else {
-          // Keyboard closed — update locked height to new value (e.g. orientation change)
-          lockedHeight = window.innerHeight;
-          canvas.style.height = lockedHeight + "px";
-          document.body.style.height = lockedHeight + "px";
-          document.getElementById("unity-container").style.height = lockedHeight + "px";
-        }
-      });
     }
 
 
@@ -260,25 +200,53 @@
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       if (!isMobile) return;
 
+      const isIOS =
+        /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
       let lockedWidth = window.innerWidth;
-      let lockedHeight = window.innerHeight;
+      let lockedHeight = getVisibleHeight();
+      let lastGoodHeight = lockedHeight;
+      let keyboardOpen = false;
+      let focusOutTimer = null;
 
-      function getUnityContainer() {
-        return document.querySelector("#unity-container");
+      function getVisibleHeight() {
+        if (window.visualViewport && window.visualViewport.height > 0) {
+          return Math.round(window.visualViewport.height);
+        }
+
+        return Math.round(window.innerHeight);
       }
 
-      function getUnityCanvas() {
-        return document.querySelector("#unity-canvas");
+      function isTextInputFocused() {
+        const active = document.activeElement;
+        if (!active || !active.tagName) return false;
+
+        const tag = active.tagName.toLowerCase();
+        return tag === "input" || tag === "textarea";
       }
 
-      function lockPageAndCanvas() {
-        const container = getUnityContainer();
-        const canvas = getUnityCanvas();
+      function getKeyboardHeightEstimate() {
+        if (!window.visualViewport) return 0;
+
+        return Math.max(
+          0,
+          window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop
+        );
+      }
+
+      function setUnityHeight(height) {
+        height = Math.round(height);
+
+        document.documentElement.style.setProperty(
+          "--unity-visible-height",
+          height + "px"
+        );
 
         document.documentElement.style.margin = "0";
         document.documentElement.style.padding = "0";
         document.documentElement.style.width = "100%";
-        document.documentElement.style.height = lockedHeight + "px";
+        document.documentElement.style.height = height + "px";
         document.documentElement.style.overflow = "hidden";
         document.documentElement.style.position = "fixed";
         document.documentElement.style.left = "0";
@@ -287,67 +255,132 @@
         document.body.style.margin = "0";
         document.body.style.padding = "0";
         document.body.style.width = "100%";
-        document.body.style.height = lockedHeight + "px";
+        document.body.style.height = height + "px";
         document.body.style.overflow = "hidden";
         document.body.style.position = "fixed";
         document.body.style.left = "0";
         document.body.style.top = "0";
+
+        const container = document.querySelector("#unity-container");
+        const canvas = document.querySelector("#unity-canvas");
 
         if (container) {
           container.style.position = "fixed";
           container.style.left = "0";
           container.style.top = "0";
           container.style.right = "0";
-          container.style.bottom = "0";
+          container.style.bottom = "auto";
           container.style.width = "100vw";
-          container.style.height = lockedHeight + "px";
+          container.style.height = height + "px";
           container.style.overflow = "hidden";
           container.style.transform = "translateY(0px)";
         }
 
         if (canvas) {
           canvas.style.width = "100vw";
-          canvas.style.height = lockedHeight + "px";
+          canvas.style.height = height + "px";
         }
 
         window.scrollTo(0, 0);
       }
 
-      function handleViewportChange() {
+      function updateUnityViewportHeight() {
         const currentWidth = window.innerWidth;
-        const currentHeight = window.innerHeight;
-
+        const currentHeight = getVisibleHeight();
         const orientationChanged = Math.abs(currentWidth - lockedWidth) > 80;
+
+        const keyboardHeight = getKeyboardHeightEstimate();
+        const inputFocused = isTextInputFocused();
+
+        keyboardOpen =
+          inputFocused ||
+          keyboardHeight > 80 ||
+          currentHeight < lastGoodHeight - 120;
 
         if (orientationChanged) {
           lockedWidth = currentWidth;
           lockedHeight = currentHeight;
+          lastGoodHeight = currentHeight;
+          keyboardOpen = false;
+          setUnityHeight(lockedHeight);
+          return;
         }
 
-        lockPageAndCanvas();
-
-        const container = getUnityContainer();
-
-        if (window.visualViewport && container) {
-          const offsetTop = window.visualViewport.offsetTop || 0;
-
-          // Counter browser keyboard/focus scroll without hiding TMP mobile input preview.
-          container.style.transform = "translateY(" + offsetTop + "px)";
+        if (isIOS) {
+          if (keyboardOpen) {
+            // iOS Safari / iOS Chrome shrink visualViewport.height when the keyboard opens.
+            // Keep the pre-keyboard height so Unity canvas does not resize.
+            lockedHeight = lastGoodHeight;
+          } else {
+            lockedHeight = currentHeight;
+            lastGoodHeight = currentHeight;
+          }
+        } else {
+          // Android Chrome: keep the same working behavior, but do not shrink while input is focused.
+          if (!keyboardOpen) {
+            lockedHeight = currentHeight;
+            lastGoodHeight = currentHeight;
+          } else {
+            lockedHeight = lastGoodHeight;
+          }
         }
 
-        window.scrollTo(0, 0);
+        setUnityHeight(lockedHeight);
       }
 
       window.addEventListener("load", function () {
         lockedWidth = window.innerWidth;
-        lockedHeight = window.innerHeight;
-        lockPageAndCanvas();
+        lockedHeight = getVisibleHeight();
+        lastGoodHeight = lockedHeight;
+        setUnityHeight(lockedHeight);
+
+        setTimeout(updateUnityViewportHeight, 100);
+        setTimeout(updateUnityViewportHeight, 500);
       });
 
       window.addEventListener("resize", function () {
-        requestAnimationFrame(handleViewportChange);
-        setTimeout(handleViewportChange, 100);
-        setTimeout(handleViewportChange, 300);
+        requestAnimationFrame(updateUnityViewportHeight);
+        setTimeout(updateUnityViewportHeight, 100);
+        setTimeout(updateUnityViewportHeight, 300);
+      });
+
+      window.addEventListener("orientationchange", function () {
+        setTimeout(function () {
+          lockedWidth = window.innerWidth;
+          lockedHeight = getVisibleHeight();
+          lastGoodHeight = lockedHeight;
+          keyboardOpen = false;
+          setUnityHeight(lockedHeight);
+        }, 500);
+      });
+
+      document.addEventListener("focusin", function () {
+        if (focusOutTimer) {
+          clearTimeout(focusOutTimer);
+          focusOutTimer = null;
+        }
+
+        requestAnimationFrame(updateUnityViewportHeight);
+        setTimeout(updateUnityViewportHeight, 100);
+        setTimeout(updateUnityViewportHeight, 300);
+      });
+
+      document.addEventListener("focusout", function () {
+        if (focusOutTimer) {
+          clearTimeout(focusOutTimer);
+        }
+
+        focusOutTimer = setTimeout(function () {
+          if (isTextInputFocused()) {
+            updateUnityViewportHeight();
+            return;
+          }
+
+          keyboardOpen = false;
+          lockedHeight = getVisibleHeight();
+          lastGoodHeight = lockedHeight;
+          setUnityHeight(lockedHeight);
+        }, 500);
       });
 
       window.addEventListener(
@@ -358,25 +391,6 @@
         { passive: false }
       );
 
-      document.addEventListener("focusin", function () {
-        requestAnimationFrame(handleViewportChange);
-        setTimeout(handleViewportChange, 100);
-        setTimeout(handleViewportChange, 300);
-      });
-
-      document.addEventListener("focusout", function () {
-        requestAnimationFrame(function () {
-          lockedWidth = window.innerWidth;
-          lockedHeight = window.innerHeight;
-          lockPageAndCanvas();
-        });
-      });
-
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", handleViewportChange);
-        window.visualViewport.addEventListener("scroll", handleViewportChange);
-      }
-
       document.addEventListener(
         "touchmove",
         function (e) {
@@ -384,6 +398,19 @@
         },
         { passive: false }
       );
+
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", function () {
+          requestAnimationFrame(updateUnityViewportHeight);
+        });
+
+        window.visualViewport.addEventListener("scroll", function () {
+          requestAnimationFrame(updateUnityViewportHeight);
+          window.scrollTo(0, 0);
+        });
+      }
+
+      updateUnityViewportHeight();
     })();
   </script>
   <script>
@@ -404,6 +431,47 @@
       const INPUT_BORDER_WIDTH = "1px";
       const INPUT_BORDER_STYLE = INPUT_BORDER_WIDTH + " solid " + INPUT_BORDER_COLOR;
 
+      const INPUT_GAP = 8;
+      const INPUT_HEIGHT = 42;
+      const INPUT_LEFT = 12;
+      const INPUT_RIGHT = 12;
+      const OK_BUTTON_WIDTH = 64;
+
+      // Extra lift only for normal Chrome browser.
+      // Installed web app should not use this extra lift.
+      const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
+
+      // Important:
+      // While keyboard is open, keep the largest known bottom value.
+      // This prevents the input from moving down when Chrome temporarily reports
+      // a smaller keyboard height during input-to-input switching or native input tap.
+      const KEYBOARD_OPEN_THRESHOLD = 80;
+      let lastKeyboardHeight = 0;
+      let lockedInputBottom = 0;
+      let keyboardSessionActive = false;
+      let clearSessionTimer = null;
+
+      function isInstalledWebApp() {
+        return (
+          (window.matchMedia && window.matchMedia("(display-mode: fullscreen)").matches) ||
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+          (window.matchMedia && window.matchMedia("(display-mode: minimal-ui)").matches) ||
+          window.navigator.standalone === true ||
+          (document.referrer && document.referrer.indexOf("android-app://") === 0)
+        );
+      }
+
+      function isNormalChromeBrowser() {
+        const ua = navigator.userAgent || "";
+
+        const isAndroidChrome =
+          /Android/i.test(ua) &&
+          /Chrome\/\d+/i.test(ua) &&
+          !/SamsungBrowser|EdgA|OPR|Firefox|FxiOS/i.test(ua);
+
+        return isAndroidChrome && !isInstalledWebApp();
+      }
+
       function isTextInput(el) {
         if (!el) return false;
 
@@ -411,6 +479,7 @@
         if (tag !== "input" && tag !== "textarea") return false;
 
         const type = (el.getAttribute("type") || "").toLowerCase();
+
         if (
           type === "hidden" ||
           type === "checkbox" ||
@@ -437,7 +506,11 @@
 
         if (tag === "input") {
           const type = (el.getAttribute("type") || "").toLowerCase();
-          if ((type === "button" || type === "submit") && (text === "ok" || text === "done" || text === "enter")) {
+
+          if (
+            (type === "button" || type === "submit") &&
+            (text === "ok" || text === "done" || text === "enter")
+          ) {
             return true;
           }
         }
@@ -445,29 +518,89 @@
         return false;
       }
 
-      function getKeyboardHeight() {
+      function getRawKeyboardHeight() {
+        let height = 0;
+
         if ("virtualKeyboard" in navigator && navigator.virtualKeyboard.boundingRect) {
           const rect = navigator.virtualKeyboard.boundingRect;
+
           if (rect && rect.height > 0) {
-            return rect.height;
+            height = rect.height;
           }
         }
 
-        if (window.visualViewport) {
+        if (height <= 0 && window.visualViewport) {
           const viewport = window.visualViewport;
-          return Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+
+          height = Math.max(
+            0,
+            window.innerHeight - viewport.height - viewport.offsetTop
+          );
         }
 
-        return 0;
+        return height;
+      }
+
+      function getStableInputBottom() {
+        const rawKeyboardHeight = getRawKeyboardHeight();
+
+        if (rawKeyboardHeight > KEYBOARD_OPEN_THRESHOLD) {
+          lastKeyboardHeight = rawKeyboardHeight;
+        }
+
+        const extraLift = isNormalChromeBrowser()
+          ? CHROME_BROWSER_INPUT_EXTRA_LIFT
+          : 0;
+
+        const candidateBottom =
+          Math.max(INPUT_GAP, rawKeyboardHeight + INPUT_GAP + extraLift);
+
+        const active = document.activeElement;
+        const hasActiveTextInput =
+          isTextInput(active) ||
+          (activeInput && document.body.contains(activeInput));
+
+        const keyboardLooksOpen =
+          rawKeyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
+          lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD;
+
+        if (hasActiveTextInput && keyboardLooksOpen) {
+          keyboardSessionActive = true;
+
+          // Core fix:
+          // Do not let bottom decrease while keyboard session is active.
+          lockedInputBottom = Math.max(
+            lockedInputBottom,
+            candidateBottom,
+            lastKeyboardHeight + INPUT_GAP + extraLift
+          );
+
+          return lockedInputBottom;
+        }
+
+        return candidateBottom;
+      }
+
+      function resetKeyboardSessionIfClosed() {
+        const rawKeyboardHeight = getRawKeyboardHeight();
+
+        if (rawKeyboardHeight <= KEYBOARD_OPEN_THRESHOLD && !isTextInput(document.activeElement)) {
+          lastKeyboardHeight = 0;
+          lockedInputBottom = 0;
+          keyboardSessionActive = false;
+          activeInput = null;
+          activeOkButton = null;
+        }
       }
 
       function findUnityOkButton(input) {
         if (!input) return null;
 
-        // First check near the input inside same parent.
         const parent = input.parentElement;
+
         if (parent) {
           const nearby = parent.querySelectorAll("button, input[type='button'], input[type='submit']");
+
           for (const el of nearby) {
             if (isPossibleOkButton(el)) {
               return el;
@@ -475,28 +608,29 @@
           }
         }
 
-        // Then check all buttons created by Unity.
         const allButtons = document.querySelectorAll("button, input[type='button'], input[type='submit']");
+
         for (const el of allButtons) {
           if (isPossibleOkButton(el)) {
             return el;
           }
         }
 
-        // Fallback: Sometimes Unity's button may not have visible text.
-        // Pick a small visible button near the input area.
         const inputRect = input.getBoundingClientRect();
         let bestButton = null;
         let bestDistance = Infinity;
 
         allButtons.forEach(function (btn) {
           const style = window.getComputedStyle(btn);
+
           if (style.display === "none" || style.visibility === "hidden") return;
 
           const rect = btn.getBoundingClientRect();
           if (rect.width <= 0 || rect.height <= 0) return;
 
-          const distance = Math.abs(rect.top - inputRect.top) + Math.abs(rect.left - inputRect.right);
+          const distance =
+            Math.abs(rect.top - inputRect.top) +
+            Math.abs(rect.left - inputRect.right);
 
           if (distance < bestDistance) {
             bestDistance = distance;
@@ -513,24 +647,23 @@
         activeInput = input;
         activeOkButton = findUnityOkButton(input);
 
-        const keyboardHeight = getKeyboardHeight();
-
-        const gap = 8;
-        const left = 12;
-        const right = 12;
-        const height = 42;
-        const okWidth = activeOkButton ? 64 : 0;
-        const bottom = keyboardHeight + gap;
+        const okWidth = activeOkButton ? OK_BUTTON_WIDTH : 0;
+        const bottom = getStableInputBottom();
 
         input.style.setProperty("position", "fixed", "important");
-        input.style.setProperty("left", left + "px", "important");
-        input.style.setProperty("right", (right + okWidth) + "px", "important");
+        input.style.setProperty("left", INPUT_LEFT + "px", "important");
+        input.style.setProperty("right", (INPUT_RIGHT + okWidth) + "px", "important");
         input.style.setProperty("bottom", bottom + "px", "important");
         input.style.setProperty("top", "auto", "important");
 
-        input.style.setProperty("width", "calc(100vw - " + (left + right + okWidth) + "px)", "important");
-        input.style.setProperty("height", height + "px", "important");
-        input.style.setProperty("min-height", height + "px", "important");
+        input.style.setProperty(
+          "width",
+          "calc(100vw - " + (INPUT_LEFT + INPUT_RIGHT + okWidth) + "px)",
+          "important"
+        );
+
+        input.style.setProperty("height", INPUT_HEIGHT + "px", "important");
+        input.style.setProperty("min-height", INPUT_HEIGHT + "px", "important");
 
         input.style.setProperty("z-index", "2147483646", "important");
         input.style.setProperty("display", "block", "important");
@@ -538,7 +671,7 @@
         input.style.setProperty("opacity", "1", "important");
 
         input.style.setProperty("font-size", "16px", "important");
-        input.style.setProperty("line-height", height + "px", "important");
+        input.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
         input.style.setProperty("padding", "0 12px", "important");
         input.style.setProperty("box-sizing", "border-box", "important");
 
@@ -549,14 +682,14 @@
 
         if (activeOkButton) {
           activeOkButton.style.setProperty("position", "fixed", "important");
-          activeOkButton.style.setProperty("right", right + "px", "important");
+          activeOkButton.style.setProperty("right", INPUT_RIGHT + "px", "important");
           activeOkButton.style.setProperty("bottom", bottom + "px", "important");
           activeOkButton.style.setProperty("top", "auto", "important");
           activeOkButton.style.setProperty("left", "auto", "important");
 
-          activeOkButton.style.setProperty("width", okWidth + "px", "important");
-          activeOkButton.style.setProperty("height", height + "px", "important");
-          activeOkButton.style.setProperty("min-height", height + "px", "important");
+          activeOkButton.style.setProperty("width", OK_BUTTON_WIDTH + "px", "important");
+          activeOkButton.style.setProperty("height", INPUT_HEIGHT + "px", "important");
+          activeOkButton.style.setProperty("min-height", INPUT_HEIGHT + "px", "important");
 
           activeOkButton.style.setProperty("z-index", "2147483647", "important");
           activeOkButton.style.setProperty("display", "block", "important");
@@ -564,7 +697,7 @@
           activeOkButton.style.setProperty("opacity", "1", "important");
 
           activeOkButton.style.setProperty("font-size", "14px", "important");
-          activeOkButton.style.setProperty("line-height", height + "px", "important");
+          activeOkButton.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
           activeOkButton.style.setProperty("padding", "0", "important");
           activeOkButton.style.setProperty("margin", "0", "important");
           activeOkButton.style.setProperty("box-sizing", "border-box", "important");
@@ -588,13 +721,15 @@
       }
 
       function updatePosition() {
-        if (activeInput && document.body.contains(activeInput)) {
-          positionNativeInputAndUnityOkButton(activeInput);
+        const active = document.activeElement;
+
+        if (isTextInput(active)) {
+          positionNativeInputAndUnityOkButton(active);
           return;
         }
 
-        if (isTextInput(document.activeElement)) {
-          positionNativeInputAndUnityOkButton(document.activeElement);
+        if (activeInput && document.body.contains(activeInput)) {
+          positionNativeInputAndUnityOkButton(activeInput);
         }
       }
 
@@ -602,17 +737,32 @@
         "focusin",
         function (event) {
           if (isTextInput(event.target)) {
+            if (clearSessionTimer) {
+              clearTimeout(clearSessionTimer);
+              clearSessionTimer = null;
+            }
+
+            activeInput = event.target;
+
+            requestAnimationFrame(function () {
+              positionNativeInputAndUnityOkButton(event.target);
+            });
+
             setTimeout(function () {
               positionNativeInputAndUnityOkButton(event.target);
             }, 50);
 
             setTimeout(function () {
               positionNativeInputAndUnityOkButton(event.target);
-            }, 250);
+            }, 150);
 
             setTimeout(function () {
               positionNativeInputAndUnityOkButton(event.target);
-            }, 500);
+            }, 300);
+
+            setTimeout(function () {
+              positionNativeInputAndUnityOkButton(event.target);
+            }, 600);
           }
         },
         true
@@ -622,12 +772,19 @@
         "focusout",
         function (event) {
           if (event.target === activeInput) {
-            setTimeout(function () {
-              if (!isTextInput(document.activeElement)) {
-                activeInput = null;
-                activeOkButton = null;
+            if (clearSessionTimer) {
+              clearTimeout(clearSessionTimer);
+            }
+
+            clearSessionTimer = setTimeout(function () {
+              if (isTextInput(document.activeElement)) {
+                activeInput = document.activeElement;
+                positionNativeInputAndUnityOkButton(activeInput);
+                return;
               }
-            }, 150);
+
+              resetKeyboardSessionIfClosed();
+            }, 700);
           }
         },
         true
@@ -658,11 +815,12 @@
         }
       });
 
+      // Do not observe style/class attributes here.
+      // Observing attributes can create repeated repositioning loops because
+      // this script itself changes style properties.
       observer.observe(document.body, {
         childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["style", "class"]
+        subtree: true
       });
     })();
   </script>
