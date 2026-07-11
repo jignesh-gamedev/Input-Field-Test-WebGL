@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=4.1'
+          'ServiceWorker.js?v=4.2'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "4.1";
+    const BUILD_VERSION = "4.2";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/23a2270d5c01c9a13ead3162e7cba2ed.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/8899036d7dd3d98ccbed3a6444177c09.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "4.1",
+      productVersion: "4.2",
       showBanner: unityShowBanner,
     };
 
@@ -435,6 +435,14 @@
 
       const isIOSChrome = isIOS && /CriOS/i.test(userAgent);
 
+      const isAndroid = /Android/i.test(userAgent);
+
+      // Facebook Messenger / Facebook in-app browser on Android does not behave
+      // like normal Chrome. It can report keyboard height as 0 and delay focus.
+      const isAndroidFacebookInAppBrowser =
+        isAndroid &&
+        /FBAN|FBAV|FB_IAB|MessengerForAndroid|Orca-Android/i.test(userAgent);
+
       // Safari browser and iOS installed Web App need a different native input strategy.
       // In those environments, position: fixed + bottom can stay glued to the bottom.
       // So for Safari-like iOS we keep bottom at 0 and lift using translateY().
@@ -467,6 +475,13 @@
       // Android Chrome browser only.
       const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
 
+      // Android Facebook Messenger / Facebook in-app browser fallback.
+      // Used only when visualViewport/VirtualKeyboard reports keyboard height as 0.
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MIN = 300;
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_MAX = 460;
+      const ANDROID_MESSENGER_FALLBACK_KEYBOARD_RATIO = 0.42;
+      const ANDROID_MESSENGER_INPUT_EXTRA_LIFT = 12;
+
       // iOS Safari / installed Web App fallback. Increase ratio/extra only if Safari is still too low.
       const IOS_FALLBACK_KEYBOARD_MIN = 280;
       const IOS_FALLBACK_KEYBOARD_MAX = 420;
@@ -478,6 +493,7 @@
       let lastKeyboardHeight = 0;
       let lockedInputBottom = 0;
       let keyboardSessionUntil = 0;
+      let lastUserGestureAt = 0;
 
       function isInstalledWebApp() {
         return (
@@ -493,7 +509,7 @@
         const isAndroidChrome =
           /Android/i.test(userAgent) &&
           /Chrome\/\d+/i.test(userAgent) &&
-          !/SamsungBrowser|EdgA|OPR|Firefox|FxiOS/i.test(userAgent);
+          !/SamsungBrowser|EdgA|OPR|Firefox|FxiOS|FBAN|FBAV|FB_IAB|MessengerForAndroid|Orca-Android/i.test(userAgent);
 
         return isAndroidChrome && !isInstalledWebApp();
       }
@@ -624,6 +640,24 @@
         );
       }
 
+      function getAndroidMessengerFallbackKeyboardHeight() {
+        const baseHeight = Math.round(
+          Math.max(
+            getCSSUnityHeight(),
+            window.innerHeight || 0,
+            document.documentElement.clientHeight || 0,
+            window.visualViewport ? window.visualViewport.height : 0
+          )
+        );
+
+        const estimated = Math.round(baseHeight * ANDROID_MESSENGER_FALLBACK_KEYBOARD_RATIO);
+
+        return Math.max(
+          ANDROID_MESSENGER_FALLBACK_KEYBOARD_MIN,
+          Math.min(ANDROID_MESSENGER_FALLBACK_KEYBOARD_MAX, estimated)
+        );
+      }
+
       function getEffectiveKeyboardHeight() {
         let keyboardHeight = getRawKeyboardHeight();
 
@@ -639,6 +673,15 @@
           keyboardHeight = getIOSFallbackKeyboardHeight();
         }
 
+        // Android Facebook Messenger / Facebook in-app browser can also report 0.
+        if (
+          isAndroidFacebookInAppBrowser &&
+          hasTextInputSession() &&
+          keyboardHeight <= KEYBOARD_OPEN_THRESHOLD
+        ) {
+          keyboardHeight = getAndroidMessengerFallbackKeyboardHeight();
+        }
+
         if (keyboardHeight > KEYBOARD_OPEN_THRESHOLD) {
           lastKeyboardHeight = Math.max(lastKeyboardHeight, keyboardHeight);
         }
@@ -649,9 +692,11 @@
       function getStableInputBottom() {
         const keyboardHeight = getEffectiveKeyboardHeight();
 
-        const extraLift = !isIOS && isNormalChromeBrowser()
-          ? CHROME_BROWSER_INPUT_EXTRA_LIFT
-          : 0;
+        const extraLift = isAndroidFacebookInAppBrowser
+          ? ANDROID_MESSENGER_INPUT_EXTRA_LIFT
+          : (!isIOS && isNormalChromeBrowser()
+            ? CHROME_BROWSER_INPUT_EXTRA_LIFT
+            : 0);
 
         const candidateBottom = Math.max(
           INPUT_GAP,
@@ -843,6 +888,22 @@
         button.style.setProperty("will-change", "transform", "important");
       }
 
+      function focusInputForAndroidMessenger(input) {
+        if (!isAndroidFacebookInAppBrowser || !input) return;
+
+        // Mobile WebViews usually open the keyboard only when focus is called
+        // very close to a real user gesture.
+        if (Date.now() - lastUserGestureAt > 1400) return;
+
+        try {
+          input.focus({ preventScroll: true });
+        } catch (e) {
+          try {
+            input.focus();
+          } catch (e2) { }
+        }
+      }
+
       function positionNativeInputAndUnityOkButton(input) {
         const targetInput = isTextInput(input) ? input : findCandidateInput();
 
@@ -852,6 +913,8 @@
 
         activeInput = targetInput;
         keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3200);
+
+        focusInputForAndroidMessenger(targetInput);
 
         activeOkButton = findUnityOkButton(targetInput);
 
@@ -991,6 +1054,8 @@
       document.addEventListener(
         "touchstart",
         function (event) {
+          lastUserGestureAt = Date.now();
+
           if (isTextInput(event.target)) {
             schedulePosition(event.target);
           } else {
@@ -1005,8 +1070,22 @@
       document.addEventListener(
         "pointerdown",
         function () {
+          lastUserGestureAt = Date.now();
+
           setTimeout(scheduleByScan, 80);
           setTimeout(scheduleByScan, 250);
+        },
+        true
+      );
+
+      document.addEventListener(
+        "click",
+        function () {
+          lastUserGestureAt = Date.now();
+
+          setTimeout(scheduleByScan, 30);
+          setTimeout(scheduleByScan, 160);
+          setTimeout(scheduleByScan, 360);
         },
         true
       );
