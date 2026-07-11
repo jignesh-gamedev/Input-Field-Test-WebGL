@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=3.9'
+          'ServiceWorker.js?v=4.0'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "3.9";
+    const BUILD_VERSION = "4.0";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/78be10ecd298a4d09ae323b39d58d7f7.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/9285ded497131c852577ef2806e11292.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "3.9",
+      productVersion: "4.0",
       showBanner: unityShowBanner,
     };
 
@@ -1090,7 +1090,285 @@
       });
     })();
   </script>
+  <script>
+    (function () {
+      const ua = navigator.userAgent || "";
 
+      const isIOS =
+        /iPhone|iPad|iPod/i.test(ua) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+      const isIOSChrome = /CriOS/i.test(ua);
+      const isIOSFirefox = /FxiOS/i.test(ua);
+      const isIOSEdge = /EdgiOS/i.test(ua);
+
+      const isInstalledWebApp =
+        (window.matchMedia && window.matchMedia("(display-mode: fullscreen)").matches) ||
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+        window.navigator.standalone === true;
+
+      // Only Safari browser and iOS installed Web App.
+      // Do not affect iOS Chrome, because v5 switching is already fixed there.
+      const shouldUseSafariPWAPatch =
+        isIOS && !isIOSChrome && !isIOSFirefox && !isIOSEdge;
+
+      if (!shouldUseSafariPWAPatch && !isInstalledWebApp) return;
+
+      const INPUT_GAP = 10;
+      const INPUT_HEIGHT = 42;
+      const INPUT_LEFT = 12;
+      const INPUT_RIGHT = 12;
+      const OK_BUTTON_WIDTH = 64;
+
+      const INPUT_BORDER_COLOR = "#39A3D0";
+      const INPUT_BORDER_STYLE = "1px solid " + INPUT_BORDER_COLOR;
+
+      const IOS_FALLBACK_KEYBOARD_RATIO = 0.40;
+      const IOS_FALLBACK_KEYBOARD_MIN = 280;
+      const IOS_FALLBACK_KEYBOARD_MAX = 430;
+
+      let lastNativeInput = null;
+      let lastOkButton = null;
+
+      function isTextInput(el) {
+        if (!el || !el.tagName) return false;
+
+        const tag = el.tagName.toLowerCase();
+        if (tag !== "input" && tag !== "textarea") return false;
+
+        const type = (el.getAttribute("type") || "").toLowerCase();
+
+        return !(
+          type === "hidden" ||
+          type === "checkbox" ||
+          type === "radio" ||
+          type === "file" ||
+          type === "submit" ||
+          type === "button"
+        );
+      }
+
+      function isPossibleOkButton(el) {
+        if (!el || !el.tagName) return false;
+
+        const tag = el.tagName.toLowerCase();
+        const text = (el.innerText || el.value || el.textContent || "")
+          .trim()
+          .toLowerCase();
+
+        if (tag === "button" && (text === "ok" || text === "done" || text === "enter")) {
+          return true;
+        }
+
+        if (tag === "input") {
+          const type = (el.getAttribute("type") || "").toLowerCase();
+          return (
+            (type === "button" || type === "submit") &&
+            (text === "ok" || text === "done" || text === "enter")
+          );
+        }
+
+        return false;
+      }
+
+      function findUnityNativeInput() {
+        if (isTextInput(document.activeElement)) {
+          lastNativeInput = document.activeElement;
+          return document.activeElement;
+        }
+
+        const inputs = Array.from(document.querySelectorAll("input, textarea"))
+          .filter(isTextInput)
+          .filter(function (el) {
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+
+            return (
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              rect.width > 20 &&
+              rect.height > 10
+            );
+          });
+
+        if (inputs.length > 0) {
+          // Unity's native input is usually the lowest visible input.
+          inputs.sort(function (a, b) {
+            return b.getBoundingClientRect().top - a.getBoundingClientRect().top;
+          });
+
+          lastNativeInput = inputs[0];
+          return inputs[0];
+        }
+
+        if (lastNativeInput && document.body.contains(lastNativeInput)) {
+          return lastNativeInput;
+        }
+
+        return null;
+      }
+
+      function findUnityOkButton(input) {
+        if (!input) return null;
+
+        const allButtons = Array.from(
+          document.querySelectorAll("button, input[type='button'], input[type='submit']")
+        );
+
+        for (const btn of allButtons) {
+          if (isPossibleOkButton(btn)) {
+            lastOkButton = btn;
+            return btn;
+          }
+        }
+
+        if (lastOkButton && document.body.contains(lastOkButton)) {
+          return lastOkButton;
+        }
+
+        return null;
+      }
+
+      function getEstimatedKeyboardHeight() {
+        let keyboardHeight = 0;
+
+        if (window.visualViewport) {
+          keyboardHeight = Math.max(
+            0,
+            window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop
+          );
+        }
+
+        if (keyboardHeight > 80) {
+          return keyboardHeight;
+        }
+
+        const baseHeight = Math.max(
+          window.innerHeight || 0,
+          document.documentElement.clientHeight || 0,
+          window.visualViewport ? window.visualViewport.height : 0
+        );
+
+        const estimated = Math.round(baseHeight * IOS_FALLBACK_KEYBOARD_RATIO);
+
+        return Math.max(
+          IOS_FALLBACK_KEYBOARD_MIN,
+          Math.min(IOS_FALLBACK_KEYBOARD_MAX, estimated)
+        );
+      }
+
+      function getInputTop() {
+        const keyboardHeight = getEstimatedKeyboardHeight();
+
+        const layoutHeight = Math.max(
+          window.innerHeight || 0,
+          document.documentElement.clientHeight || 0
+        );
+
+        const visibleBottom = layoutHeight - keyboardHeight;
+
+        return Math.max(
+          0,
+          Math.round(visibleBottom - INPUT_HEIGHT - INPUT_GAP)
+        );
+      }
+
+      function applySafariPWAPosition() {
+        const input = findUnityNativeInput();
+        if (!input) return;
+
+        const okButton = findUnityOkButton(input);
+        const okWidth = okButton ? OK_BUTTON_WIDTH : 0;
+        const top = getInputTop();
+
+        input.style.setProperty("position", "fixed", "important");
+        input.style.setProperty("left", INPUT_LEFT + "px", "important");
+        input.style.setProperty("right", (INPUT_RIGHT + okWidth) + "px", "important");
+        input.style.setProperty("top", top + "px", "important");
+        input.style.setProperty("bottom", "auto", "important");
+
+        input.style.setProperty(
+          "width",
+          "calc(100vw - " + (INPUT_LEFT + INPUT_RIGHT + okWidth) + "px)",
+          "important"
+        );
+
+        input.style.setProperty("height", INPUT_HEIGHT + "px", "important");
+        input.style.setProperty("min-height", INPUT_HEIGHT + "px", "important");
+        input.style.setProperty("z-index", "2147483646", "important");
+        input.style.setProperty("display", "block", "important");
+        input.style.setProperty("visibility", "visible", "important");
+        input.style.setProperty("opacity", "1", "important");
+        input.style.setProperty("font-size", "16px", "important");
+        input.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
+        input.style.setProperty("padding", "0 12px", "important");
+        input.style.setProperty("box-sizing", "border-box", "important");
+        input.style.setProperty("background", "#ffffff", "important");
+        input.style.setProperty("color", "#000000", "important");
+        input.style.setProperty("outline", "none", "important");
+        input.style.setProperty("transform", "translate3d(0,0,0)", "important");
+
+        if (okButton) {
+          okButton.style.setProperty("position", "fixed", "important");
+          okButton.style.setProperty("right", INPUT_RIGHT + "px", "important");
+          okButton.style.setProperty("top", top + "px", "important");
+          okButton.style.setProperty("bottom", "auto", "important");
+          okButton.style.setProperty("left", "auto", "important");
+          okButton.style.setProperty("width", OK_BUTTON_WIDTH + "px", "important");
+          okButton.style.setProperty("height", INPUT_HEIGHT + "px", "important");
+          okButton.style.setProperty("min-height", INPUT_HEIGHT + "px", "important");
+          okButton.style.setProperty("z-index", "2147483647", "important");
+          okButton.style.setProperty("display", "block", "important");
+          okButton.style.setProperty("visibility", "visible", "important");
+          okButton.style.setProperty("opacity", "1", "important");
+          okButton.style.setProperty("background", "#ffffff", "important");
+          okButton.style.setProperty("color", "#000000", "important");
+          okButton.style.setProperty("border", INPUT_BORDER_STYLE, "important");
+          okButton.style.setProperty("border-radius", "0 8px 8px 0", "important");
+          okButton.style.setProperty("transform", "translate3d(0,0,0)", "important");
+
+          input.style.setProperty("border", INPUT_BORDER_STYLE, "important");
+          input.style.setProperty("border-right", "0", "important");
+          input.style.setProperty("border-radius", "8px 0 0 8px", "important");
+        } else {
+          input.style.setProperty("border", INPUT_BORDER_STYLE, "important");
+          input.style.setProperty("border-radius", "8px", "important");
+        }
+
+        window.scrollTo(0, 0);
+      }
+
+      function scheduleSafariPWAPosition() {
+        requestAnimationFrame(applySafariPWAPosition);
+
+        setTimeout(applySafariPWAPosition, 50);
+        setTimeout(applySafariPWAPosition, 150);
+        setTimeout(applySafariPWAPosition, 300);
+        setTimeout(applySafariPWAPosition, 600);
+        setTimeout(applySafariPWAPosition, 1000);
+      }
+
+      document.addEventListener("focusin", scheduleSafariPWAPosition, true);
+      document.addEventListener("touchstart", scheduleSafariPWAPosition, true);
+      document.addEventListener("pointerdown", scheduleSafariPWAPosition, true);
+
+      window.addEventListener("resize", scheduleSafariPWAPosition);
+
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", scheduleSafariPWAPosition);
+        window.visualViewport.addEventListener("scroll", scheduleSafariPWAPosition);
+      }
+
+      const observer = new MutationObserver(function () {
+        scheduleSafariPWAPosition();
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    })();
+  </script>
 </body>
 
 </html>
