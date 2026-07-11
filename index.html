@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=3.8'
+          'ServiceWorker.js?v=3.9'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "3.8";
+    const BUILD_VERSION = "3.9";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/ddc037456f6cce112c8686c4a01e0c86.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/78be10ecd298a4d09ae323b39d58d7f7.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "3.8",
+      productVersion: "3.9",
       showBanner: unityShowBanner,
     };
 
@@ -427,16 +427,18 @@
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       if (!isMobile) return;
 
-      const ua = navigator.userAgent || "";
+      const userAgent = navigator.userAgent || "";
 
       const isIOS =
-        /iPhone|iPad|iPod/i.test(ua) ||
+        /iPhone|iPad|iPod/i.test(userAgent) ||
         (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
-      const isIOSChrome = isIOS && /CriOS/i.test(ua);
-      const isIOSSafariLikeOrPWA =
-        isIOS &&
-        !/CriOS|FxiOS|EdgiOS/i.test(ua);
+      const isIOSChrome = isIOS && /CriOS/i.test(userAgent);
+
+      // Safari browser and iOS installed Web App need a different native input strategy.
+      // In those environments, position: fixed + bottom can stay glued to the bottom.
+      // So for Safari-like iOS we keep bottom at 0 and lift using translateY().
+      const useIOSSafariTransformLift = isIOS && !isIOSChrome;
 
       if ("virtualKeyboard" in navigator) {
         try {
@@ -449,7 +451,8 @@
       let lastOkButton = null;
       let clearSessionTimer = null;
       let positionLoopTimer = null;
-      let lastInputCandidate = null;
+      let mutationDebounceTimer = null;
+      let isApplyingStyles = false;
 
       const INPUT_BORDER_COLOR = "#39A3D0";
       const INPUT_BORDER_WIDTH = "1px";
@@ -464,18 +467,17 @@
       // Android Chrome browser only.
       const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
 
-      // Safari / iOS installed Web App can report keyboard height as 0.
-      // Increase ratio to lift input higher in Safari/PWA; reduce it to lower the input.
+      // iOS Safari / installed Web App fallback. Increase ratio/extra only if Safari is still too low.
       const IOS_FALLBACK_KEYBOARD_MIN = 280;
       const IOS_FALLBACK_KEYBOARD_MAX = 420;
       const IOS_FALLBACK_KEYBOARD_RATIO = 0.42;
-      const IOS_SAFARI_INPUT_LIFT_EXTRA = 12;
+      const IOS_SAFARI_INPUT_LIFT_EXTRA = 0;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
       let lastKeyboardHeight = 0;
       let lockedInputBottom = 0;
-      let keyboardLikelyOpenUntil = 0;
+      let keyboardSessionUntil = 0;
 
       function isInstalledWebApp() {
         return (
@@ -489,17 +491,17 @@
 
       function isNormalChromeBrowser() {
         const isAndroidChrome =
-          /Android/i.test(ua) &&
-          /Chrome\/\d+/i.test(ua) &&
-          !/SamsungBrowser|EdgA|OPR|Firefox|FxiOS/i.test(ua);
+          /Android/i.test(userAgent) &&
+          /Chrome\/\d+/i.test(userAgent) &&
+          !/SamsungBrowser|EdgA|OPR|Firefox|FxiOS/i.test(userAgent);
 
         return isAndroidChrome && !isInstalledWebApp();
       }
 
       function isTextInput(el) {
-        if (!el || !el.tagName) return false;
+        if (!el) return false;
 
-        const tag = el.tagName.toLowerCase();
+        const tag = el.tagName ? el.tagName.toLowerCase() : "";
         if (tag !== "input" && tag !== "textarea") return false;
 
         const type = (el.getAttribute("type") || "").toLowerCase();
@@ -514,79 +516,42 @@
         );
       }
 
-      function isVisibleEnough(el) {
-        if (!el || !document.body.contains(el)) return false;
+      function isVisibleCandidateInput(el) {
+        if (!isTextInput(el)) return false;
+        if (!document.body.contains(el)) return false;
 
         const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") return false;
 
-        if (style.display === "none" || style.visibility === "hidden") {
-          return false;
-        }
-
-        const rect = el.getBoundingClientRect();
-
-        // Unity can create the input with very small/temporary rect first.
-        // Do not reject it only because width/height is temporarily 0.
-        return rect.width >= 0 && rect.height >= 0;
+        return true;
       }
 
-      function findBestUnityTextInput() {
-        const focused = document.activeElement;
-
-        if (isTextInput(focused)) {
-          lastInputCandidate = focused;
-          return focused;
+      function findCandidateInput() {
+        if (isVisibleCandidateInput(document.activeElement)) {
+          return document.activeElement;
         }
 
-        if (activeInput && isTextInput(activeInput) && document.body.contains(activeInput)) {
-          lastInputCandidate = activeInput;
+        if (activeInput && isVisibleCandidateInput(activeInput)) {
           return activeInput;
         }
 
         const inputs = Array.from(document.querySelectorAll("input, textarea"))
-          .filter(function (el) {
-            return isTextInput(el) && isVisibleEnough(el);
-          });
+          .filter(isVisibleCandidateInput);
 
-        if (inputs.length === 0) {
-          return lastInputCandidate && document.body.contains(lastInputCandidate)
-            ? lastInputCandidate
-            : null;
-        }
+        if (inputs.length <= 0) return null;
 
-        // Prefer Unity mobile inputs that are fixed/absolute or already high z-index.
-        let best = inputs[inputs.length - 1];
-        let bestScore = -Infinity;
+        // Unity usually appends/rebuilds the active native input last.
+        return inputs[inputs.length - 1];
+      }
 
-        inputs.forEach(function (input) {
-          const style = window.getComputedStyle(input);
-          const rect = input.getBoundingClientRect();
-
-          let score = 0;
-
-          if (input === lastInputCandidate) score += 1000;
-          if (input === activeInput) score += 900;
-          if (style.position === "fixed") score += 300;
-          if (style.position === "absolute") score += 150;
-          if (parseInt(style.zIndex || "0", 10) > 1000) score += 200;
-          if (rect.width > 100) score += 80;
-          if (rect.height > 20) score += 80;
-          if (input.value && input.value.length > 0) score += 20;
-
-          if (score > bestScore) {
-            bestScore = score;
-            best = input;
-          }
-        });
-
-        lastInputCandidate = best;
-        return best;
+      function hasTextInputSession() {
+        return !!findCandidateInput() || Date.now() < keyboardSessionUntil;
       }
 
       function isPossibleOkButton(el) {
-        if (!el || !el.tagName) return false;
+        if (!el) return false;
 
-        const tag = el.tagName.toLowerCase();
+        const tag = el.tagName ? el.tagName.toLowerCase() : "";
         const text = (el.innerText || el.value || el.textContent || "").trim().toLowerCase();
 
         if (tag === "button" && (text === "ok" || text === "done" || text === "enter")) {
@@ -610,7 +575,6 @@
       function getRawKeyboardHeight() {
         let height = 0;
 
-        // Chrome Android only. iOS usually does not expose this reliably.
         if (!isIOS && "virtualKeyboard" in navigator && navigator.virtualKeyboard.boundingRect) {
           const rect = navigator.virtualKeyboard.boundingRect;
 
@@ -631,19 +595,27 @@
         return Math.round(height);
       }
 
+      function getCSSUnityHeight() {
+        const raw = window.getComputedStyle(document.documentElement)
+          .getPropertyValue("--unity-visible-height");
+
+        const parsed = parseFloat(raw);
+
+        if (parsed && parsed > 0) return parsed;
+
+        return 0;
+      }
+
       function getIOSFallbackKeyboardHeight() {
-        const possibleHeights = [
-          window.innerHeight || 0,
-          document.documentElement.clientHeight || 0,
-          screen.height || 0,
-          screen.availHeight || 0
-        ];
+        const baseHeight = Math.round(
+          Math.max(
+            getCSSUnityHeight(),
+            window.innerHeight || 0,
+            document.documentElement.clientHeight || 0,
+            window.visualViewport ? window.visualViewport.height : 0
+          )
+        );
 
-        if (window.visualViewport) {
-          possibleHeights.push(window.visualViewport.height || 0);
-        }
-
-        const baseHeight = Math.round(Math.max.apply(null, possibleHeights));
         const estimated = Math.round(baseHeight * IOS_FALLBACK_KEYBOARD_RATIO);
 
         return Math.max(
@@ -655,19 +627,15 @@
       function getEffectiveKeyboardHeight() {
         let keyboardHeight = getRawKeyboardHeight();
 
-        const candidateInput = findBestUnityTextInput();
+        const candidateInput = findCandidateInput();
 
-        const hasAnyUnityInput =
-          !!candidateInput ||
-          (activeInput && document.body.contains(activeInput));
+        if (candidateInput) {
+          activeInput = candidateInput;
+          keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3000);
+        }
 
-        const keyboardSessionLikely =
-          hasAnyUnityInput ||
-          Date.now() < keyboardLikelyOpenUntil;
-
-        // Safari and installed PWA often return 0 keyboard height while Unity's native
-        // input is visible. If we found a Unity input, treat keyboard as open and use fallback.
-        if (isIOS && keyboardSessionLikely && keyboardHeight <= KEYBOARD_OPEN_THRESHOLD) {
+        // iOS Safari / installed PWA can report 0 while keyboard is visible.
+        if (isIOS && hasTextInputSession() && keyboardHeight <= KEYBOARD_OPEN_THRESHOLD) {
           keyboardHeight = getIOSFallbackKeyboardHeight();
         }
 
@@ -685,28 +653,21 @@
           ? CHROME_BROWSER_INPUT_EXTRA_LIFT
           : 0;
 
-        const safariLift = isIOSSafariLikeOrPWA
-          ? IOS_SAFARI_INPUT_LIFT_EXTRA
-          : 0;
-
         const candidateBottom = Math.max(
           INPUT_GAP,
-          keyboardHeight + INPUT_GAP + extraLift + safariLift
+          keyboardHeight + INPUT_GAP + extraLift
         );
-
-        const candidateInput = findBestUnityTextInput();
 
         const keyboardLooksOpen =
           keyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
           lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
-          !!candidateInput ||
-          Date.now() < keyboardLikelyOpenUntil;
+          hasTextInputSession();
 
         if (keyboardLooksOpen) {
           lockedInputBottom = Math.max(
             lockedInputBottom,
             candidateBottom,
-            lastKeyboardHeight + INPUT_GAP + extraLift + safariLift
+            lastKeyboardHeight + INPUT_GAP + extraLift
           );
 
           return lockedInputBottom;
@@ -715,16 +676,41 @@
         return candidateBottom;
       }
 
+      function getIOSSafariTransformLift() {
+        const keyboardHeight = getEffectiveKeyboardHeight();
+
+        const candidateLift = Math.max(
+          INPUT_GAP,
+          keyboardHeight + INPUT_GAP + IOS_SAFARI_INPUT_LIFT_EXTRA
+        );
+
+        const keyboardLooksOpen =
+          keyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
+          lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
+          hasTextInputSession();
+
+        if (keyboardLooksOpen) {
+          lockedInputBottom = Math.max(
+            lockedInputBottom,
+            candidateLift,
+            lastKeyboardHeight + INPUT_GAP + IOS_SAFARI_INPUT_LIFT_EXTRA
+          );
+
+          return lockedInputBottom;
+        }
+
+        return candidateLift;
+      }
+
       function resetKeyboardSessionIfClosed() {
         const rawKeyboardHeight = getRawKeyboardHeight();
-        const focusedInput = isTextInput(document.activeElement);
 
-        if (!focusedInput && rawKeyboardHeight <= KEYBOARD_OPEN_THRESHOLD && Date.now() > keyboardLikelyOpenUntil) {
+        if (!findCandidateInput() && rawKeyboardHeight <= KEYBOARD_OPEN_THRESHOLD) {
           lastKeyboardHeight = 0;
           lockedInputBottom = 0;
           activeInput = null;
           activeOkButton = null;
-          lastInputCandidate = null;
+          keyboardSessionUntil = 0;
         }
       }
 
@@ -762,8 +748,9 @@
         let bestDistance = Infinity;
 
         allButtons.forEach(function (btn) {
+          if (!document.body.contains(btn)) return;
+
           const rect = btn.getBoundingClientRect();
-          if (rect.width <= 0 || rect.height <= 0) return;
 
           const distance =
             Math.abs(rect.top - inputRect.top) +
@@ -782,10 +769,15 @@
         return bestButton;
       }
 
-      function applyInputStyle(input, okWidth) {
+      function applyInputStyle(input, okWidth, bottom, lift) {
+        const transformValue = lift > 0
+          ? "translate3d(0, -" + lift + "px, 0)"
+          : "none";
+
         input.style.setProperty("position", "fixed", "important");
         input.style.setProperty("left", INPUT_LEFT + "px", "important");
         input.style.setProperty("right", (INPUT_RIGHT + okWidth) + "px", "important");
+        input.style.setProperty("bottom", bottom + "px", "important");
         input.style.setProperty("top", "auto", "important");
 
         input.style.setProperty(
@@ -810,20 +802,19 @@
         input.style.setProperty("background", "#ffffff", "important");
         input.style.setProperty("color", "#000000", "important");
         input.style.setProperty("outline", "none", "important");
-
-        input.style.setProperty("border", INPUT_BORDER_STYLE, "important");
-
-        if (okWidth > 0) {
-          input.style.setProperty("border-right", "0", "important");
-          input.style.setProperty("border-radius", "8px 0 0 8px", "important");
-        } else {
-          input.style.setProperty("border-radius", "8px", "important");
-        }
+        input.style.setProperty("transform", transformValue, "important");
+        input.style.setProperty("-webkit-transform", transformValue, "important");
+        input.style.setProperty("will-change", "transform", "important");
       }
 
-      function applyOkButtonStyle(button) {
+      function applyOkButtonStyle(button, bottom, lift) {
+        const transformValue = lift > 0
+          ? "translate3d(0, -" + lift + "px, 0)"
+          : "none";
+
         button.style.setProperty("position", "fixed", "important");
         button.style.setProperty("right", INPUT_RIGHT + "px", "important");
+        button.style.setProperty("bottom", bottom + "px", "important");
         button.style.setProperty("top", "auto", "important");
         button.style.setProperty("left", "auto", "important");
 
@@ -847,54 +838,67 @@
         button.style.setProperty("border", INPUT_BORDER_STYLE, "important");
         button.style.setProperty("border-left", "1px solid " + INPUT_BORDER_COLOR, "important");
         button.style.setProperty("border-radius", "0 8px 8px 0", "important");
-      }
-
-      function placeElementForPlatform(el, bottom) {
-        // iOS Safari / installed PWA can ignore or override fixed bottom during the keyboard session.
-        // Applying both bottom and translateY gives Safari a second layout path.
-        if (isIOSSafariLikeOrPWA) {
-          el.style.setProperty("bottom", "0px", "important");
-          el.style.setProperty("transform", "translate3d(0, -" + bottom + "px, 0)", "important");
-          el.style.setProperty("-webkit-transform", "translate3d(0, -" + bottom + "px, 0)", "important");
-        } else {
-          el.style.setProperty("bottom", bottom + "px", "important");
-          el.style.setProperty("transform", "none", "important");
-          el.style.setProperty("-webkit-transform", "none", "important");
-        }
+        button.style.setProperty("transform", transformValue, "important");
+        button.style.setProperty("-webkit-transform", transformValue, "important");
+        button.style.setProperty("will-change", "transform", "important");
       }
 
       function positionNativeInputAndUnityOkButton(input) {
-        if (!isTextInput(input)) return;
+        const targetInput = isTextInput(input) ? input : findCandidateInput();
 
-        keyboardLikelyOpenUntil = Date.now() + 1800;
+        if (!targetInput) return;
 
-        activeInput = input;
-        lastInputCandidate = input;
-        activeOkButton = findUnityOkButton(input);
+        isApplyingStyles = true;
+
+        activeInput = targetInput;
+        keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3200);
+
+        activeOkButton = findUnityOkButton(targetInput);
 
         const okWidth = activeOkButton ? OK_BUTTON_WIDTH : 0;
-        const bottom = getStableInputBottom();
 
-        applyInputStyle(input, okWidth);
-        placeElementForPlatform(input, bottom);
+        let bottom;
+        let lift;
+
+        if (useIOSSafariTransformLift) {
+          bottom = 0;
+          lift = getIOSSafariTransformLift();
+        } else {
+          bottom = getStableInputBottom();
+          lift = 0;
+        }
+
+        applyInputStyle(targetInput, okWidth, bottom, lift);
 
         if (activeOkButton) {
-          applyOkButtonStyle(activeOkButton);
-          placeElementForPlatform(activeOkButton, bottom);
+          applyOkButtonStyle(activeOkButton, bottom, lift);
+
+          targetInput.style.setProperty("border", INPUT_BORDER_STYLE, "important");
+          targetInput.style.setProperty("border-right", "0", "important");
+          targetInput.style.setProperty("border-radius", "8px 0 0 8px", "important");
+        } else {
+          targetInput.style.setProperty("border", INPUT_BORDER_STYLE, "important");
+          targetInput.style.setProperty("border-radius", "8px", "important");
         }
 
         window.scrollTo(0, 0);
+
+        setTimeout(function () {
+          isApplyingStyles = false;
+        }, 0);
       }
 
       function updatePosition() {
-        const input = findBestUnityTextInput();
+        const candidate = findCandidateInput();
 
-        if (input) {
-          positionNativeInputAndUnityOkButton(input);
+        if (candidate) {
+          positionNativeInputAndUnityOkButton(candidate);
           return;
         }
 
-        resetKeyboardSessionIfClosed();
+        if (activeInput && document.body.contains(activeInput)) {
+          positionNativeInputAndUnityOkButton(activeInput);
+        }
       }
 
       function startPositionLoop(input) {
@@ -906,58 +910,79 @@
         const startedAt = Date.now();
 
         positionLoopTimer = setInterval(function () {
-          const target = findBestUnityTextInput() || input;
+          const candidate = findCandidateInput() || input;
 
-          if (target && document.body.contains(target)) {
-            positionNativeInputAndUnityOkButton(target);
+          if (candidate && document.body.contains(candidate)) {
+            positionNativeInputAndUnityOkButton(candidate);
           }
 
-          if (Date.now() - startedAt > 2200) {
+          if (Date.now() - startedAt > 4800) {
             clearInterval(positionLoopTimer);
             positionLoopTimer = null;
           }
         }, 50);
       }
 
-      function scheduleScanAndPosition(preferredInput) {
-        keyboardLikelyOpenUntil = Date.now() + 1800;
+      function schedulePosition(input) {
+        const target = isTextInput(input) ? input : findCandidateInput();
+
+        if (!target) return;
 
         if (clearSessionTimer) {
           clearTimeout(clearSessionTimer);
           clearSessionTimer = null;
         }
 
-        const firstInput = isTextInput(preferredInput)
-          ? preferredInput
-          : findBestUnityTextInput();
+        activeInput = target;
+        keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3400);
 
-        if (firstInput) {
-          activeInput = firstInput;
-          positionNativeInputAndUnityOkButton(firstInput);
-          startPositionLoop(firstInput);
-        }
-
-        [30, 80, 160, 300, 500, 800, 1200].forEach(function (delay) {
-          setTimeout(function () {
-            const input = findBestUnityTextInput() || firstInput;
-
-            if (input) {
-              activeInput = input;
-              positionNativeInputAndUnityOkButton(input);
-              startPositionLoop(input);
-            }
-          }, delay);
+        requestAnimationFrame(function () {
+          positionNativeInputAndUnityOkButton(target);
         });
+
+        setTimeout(function () {
+          positionNativeInputAndUnityOkButton(target);
+        }, 50);
+
+        setTimeout(function () {
+          positionNativeInputAndUnityOkButton(target);
+        }, 150);
+
+        setTimeout(function () {
+          positionNativeInputAndUnityOkButton(target);
+        }, 300);
+
+        setTimeout(function () {
+          positionNativeInputAndUnityOkButton(target);
+        }, 650);
+
+        setTimeout(function () {
+          positionNativeInputAndUnityOkButton(findCandidateInput() || target);
+        }, 1100);
+
+        setTimeout(function () {
+          positionNativeInputAndUnityOkButton(findCandidateInput() || target);
+        }, 1800);
+
+        startPositionLoop(target);
+      }
+
+      function scheduleByScan() {
+        const candidate = findCandidateInput();
+
+        if (candidate) {
+          schedulePosition(candidate);
+        }
       }
 
       document.addEventListener(
         "focusin",
         function (event) {
           if (isTextInput(event.target)) {
-            scheduleScanAndPosition(event.target);
-          } else if (isIOS) {
-            // Safari/PWA may keep focus on body/canvas while Unity creates input.
-            scheduleScanAndPosition(null);
+            schedulePosition(event.target);
+          } else {
+            setTimeout(scheduleByScan, 50);
+            setTimeout(scheduleByScan, 200);
           }
         },
         true
@@ -965,9 +990,13 @@
 
       document.addEventListener(
         "touchstart",
-        function () {
-          if (isIOS) {
-            scheduleScanAndPosition(null);
+        function (event) {
+          if (isTextInput(event.target)) {
+            schedulePosition(event.target);
+          } else {
+            setTimeout(scheduleByScan, 80);
+            setTimeout(scheduleByScan, 250);
+            setTimeout(scheduleByScan, 500);
           }
         },
         true
@@ -976,33 +1005,34 @@
       document.addEventListener(
         "pointerdown",
         function () {
-          if (isIOS) {
-            scheduleScanAndPosition(null);
-          }
+          setTimeout(scheduleByScan, 80);
+          setTimeout(scheduleByScan, 250);
         },
         true
       );
 
       document.addEventListener(
         "focusout",
-        function () {
-          if (clearSessionTimer) {
-            clearTimeout(clearSessionTimer);
-          }
+        function (event) {
+          if (event.target === activeInput) {
+            keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3000);
 
-          keyboardLikelyOpenUntil = Date.now() + 1200;
-
-          clearSessionTimer = setTimeout(function () {
-            const input = findBestUnityTextInput();
-
-            if (input) {
-              activeInput = input;
-              positionNativeInputAndUnityOkButton(input);
-              return;
+            if (clearSessionTimer) {
+              clearTimeout(clearSessionTimer);
             }
 
-            resetKeyboardSessionIfClosed();
-          }, 900);
+            clearSessionTimer = setTimeout(function () {
+              const candidate = findCandidateInput();
+
+              if (candidate) {
+                activeInput = candidate;
+                schedulePosition(candidate);
+                return;
+              }
+
+              resetKeyboardSessionIfClosed();
+            }, 1200);
+          }
         },
         true
       );
@@ -1011,32 +1041,52 @@
         requestAnimationFrame(updatePosition);
         setTimeout(updatePosition, 100);
         setTimeout(updatePosition, 300);
+        setTimeout(scheduleByScan, 600);
       });
 
       if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", updatePosition);
-        window.visualViewport.addEventListener("scroll", updatePosition);
+        window.visualViewport.addEventListener("resize", function () {
+          requestAnimationFrame(updatePosition);
+          setTimeout(scheduleByScan, 120);
+          setTimeout(scheduleByScan, 420);
+        });
+
+        window.visualViewport.addEventListener("scroll", function () {
+          requestAnimationFrame(updatePosition);
+          setTimeout(scheduleByScan, 120);
+        });
       }
 
       if ("virtualKeyboard" in navigator) {
         try {
-          navigator.virtualKeyboard.addEventListener("geometrychange", updatePosition);
+          navigator.virtualKeyboard.addEventListener("geometrychange", function () {
+            requestAnimationFrame(updatePosition);
+            setTimeout(scheduleByScan, 120);
+          });
         } catch (e) { }
       }
 
       const observer = new MutationObserver(function () {
-        if (isIOS || findBestUnityTextInput()) {
-          setTimeout(function () {
-            scheduleScanAndPosition(null);
-          }, 30);
+        if (isApplyingStyles) return;
+
+        if (mutationDebounceTimer) {
+          clearTimeout(mutationDebounceTimer);
         }
+
+        mutationDebounceTimer = setTimeout(function () {
+          const candidate = findCandidateInput();
+
+          if (candidate) {
+            schedulePosition(candidate);
+          }
+        }, 40);
       });
 
       observer.observe(document.body, {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ["style", "class"]
+        attributeFilter: ["style", "class", "value"]
       });
     })();
   </script>
