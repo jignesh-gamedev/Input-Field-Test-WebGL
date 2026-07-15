@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=5.9'
+          'ServiceWorker.js?v=6.0'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "5.9";
+    const BUILD_VERSION = "6.0";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/9d678a47cb8b8a8eb192530a7559119c.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/71139cb145abc59260ec010dcbdae4c5.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "5.9",
+      productVersion: "6.0",
       showBanner: unityShowBanner,
     };
 
@@ -505,7 +505,7 @@
       // Safari bottom tab bar reports keyboard/visualViewport in multiple phases.
       // Do not chase those live values on iPhone; use one stable predicted bottom
       // during the whole keyboard session so the input does not jump high -> low -> correct.
-      const IOS_IPHONE_SAFARI_DOWN_ADJUST = 2;
+      const IOS_IPHONE_SAFARI_DOWN_ADJUST = 0;
       const IOS_IPHONE_SAFARI_KEYBOARD_MIN = 220;
       const IOS_IPHONE_SAFARI_KEYBOARD_MAX = 330;
       const IOS_IPHONE_SAFARI_KEYBOARD_RATIO = 0.34;
