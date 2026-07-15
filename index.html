@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=4.7'
+          'ServiceWorker.js?v=4.8'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "4.7";
+    const BUILD_VERSION = "4.8";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/0e04b45466a883f9badadf98d223a0ff.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/46d367f0c8d1ed15082e7217bc9004de.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "4.7",
+      productVersion: "4.8",
       showBanner: unityShowBanner,
     };
 
@@ -1215,10 +1215,12 @@
         (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
         window.navigator.standalone === true;
 
-      // Only Safari browser and iOS installed Web App.
-      // Do not affect iOS Chrome, because v5 switching is already fixed there.
+      const isIPad =
+        /iPad/i.test(ua) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
       const shouldUseSafariPWAPatch =
-        isIOS &&
+        isIPad &&
         !isIOSChrome &&
         !isIOSFirefox &&
         !isIOSEdge &&
