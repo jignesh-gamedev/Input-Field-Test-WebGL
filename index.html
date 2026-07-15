@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=5.1'
+          'ServiceWorker.js?v=5.2'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "5.1";
+    const BUILD_VERSION = "5.2";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/782841def3774df6b59f9f431af5e204.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/6955efda1c4aa8dcd3386e64b8930e1a.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "5.1",
+      productVersion: "5.2",
       showBanner: unityShowBanner,
     };
 
@@ -504,7 +504,7 @@
       // iPhone Safari / iPhone installed app can over-report the keyboard area.
       // Move only the iPhone Safari-like bottom-positioned input slightly down.
       // iPad still uses the separate Safari/PWA patch below.
-      const IOS_IPHONE_SAFARI_DOWN_ADJUST = 10;
+      const IOS_IPHONE_SAFARI_DOWN_ADJUST = 8;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
@@ -1031,6 +1031,28 @@
 
         activeInput = target;
         keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3400);
+
+        // iPhone Safari with bottom tab bar can update visualViewport in two steps.
+        // Apply the iPhone down-adjust immediately so the input does not first appear too high.
+        if (isIPhoneSafariLike) {
+          positionNativeInputAndUnityOkButton(target);
+
+          requestAnimationFrame(function () {
+            positionNativeInputAndUnityOkButton(target);
+          });
+
+          setTimeout(function () {
+            positionNativeInputAndUnityOkButton(target);
+          }, 0);
+
+          setTimeout(function () {
+            positionNativeInputAndUnityOkButton(target);
+          }, 16);
+
+          setTimeout(function () {
+            positionNativeInputAndUnityOkButton(target);
+          }, 32);
+        }
 
         requestAnimationFrame(function () {
           positionNativeInputAndUnityOkButton(target);
