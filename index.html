@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=4.8'
+          'ServiceWorker.js?v=4.9'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "4.8";
+    const BUILD_VERSION = "4.9";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/46d367f0c8d1ed15082e7217bc9004de.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/4ea751038a5daa87d96a4fa6bc838a73.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "4.8",
+      productVersion: "4.9",
       showBanner: unityShowBanner,
     };
 
@@ -447,10 +447,14 @@
         isAndroid &&
         /FBAN|FBAV|FB_IAB|MessengerForAndroid|Orca-Android/i.test(userAgent);
 
-      // Safari browser and iOS installed Web App need a different native input strategy.
-      // In those environments, position: fixed + bottom can stay glued to the bottom.
-      // So for Safari-like iOS we keep bottom at 0 and lift using translateY().
-      const useIOSSafariTransformLift = isIOS && !isIOSChrome;
+      const isIPad =
+        /iPad/i.test(userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+      // Use the Safari/PWA transform-lift strategy only on iPad.
+      // On iPhone Safari/PWA this created extra lift / flicker because the main
+      // bottom-based positioning is already enough.
+      const useIOSSafariTransformLift = isIPad && !isIOSChrome;
 
       if ("virtualKeyboard" in navigator) {
         try {
