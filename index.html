@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=5.3'
+          'ServiceWorker.js?v=5.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "5.3";
+    const BUILD_VERSION = "5.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/d01ece8bfde70d4115a291cfa69e3b01.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/b9454624dd8c35c48690fdccd73a48b6.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "5.3",
+      productVersion: "5.4",
       showBanner: unityShowBanner,
     };
 
@@ -506,12 +506,20 @@
       // iPad still uses the separate Safari/PWA patch below.
       const IOS_IPHONE_SAFARI_DOWN_ADJUST = 2;
 
+      // iPhone Safari bottom tab bar can report an over-large keyboard area only
+      // during the first keyboard-opening animation. This temporary extra down
+      // adjustment is used only for the first few hundred milliseconds so the
+      // input does not first appear too high and then jump down later.
+      const IOS_IPHONE_SAFARI_OPENING_EXTRA_DOWN_ADJUST = 22;
+      const IOS_IPHONE_SAFARI_OPENING_EXTRA_MS = 850;
+
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
       let lastKeyboardHeight = 0;
       let lockedInputBottom = 0;
       let keyboardSessionUntil = 0;
       let lastUserGestureAt = 0;
+      let iPhoneSafariOpeningExtraUntil = 0;
 
       function isInstalledWebApp() {
         return (
@@ -716,9 +724,13 @@
             ? CHROME_BROWSER_INPUT_EXTRA_LIFT
             : 0);
 
-        const iPhoneSafariDownAdjust = isIPhoneSafariLike
+        let iPhoneSafariDownAdjust = isIPhoneSafariLike
           ? IOS_IPHONE_SAFARI_DOWN_ADJUST
           : 0;
+
+        if (isIPhoneSafariLike && Date.now() < iPhoneSafariOpeningExtraUntil) {
+          iPhoneSafariDownAdjust += IOS_IPHONE_SAFARI_OPENING_EXTRA_DOWN_ADJUST;
+        }
 
         const candidateBottom = Math.max(
           INPUT_GAP,
@@ -1032,6 +1044,10 @@
         activeInput = target;
         keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3400);
 
+        if (isIPhoneSafariLike) {
+          iPhoneSafariOpeningExtraUntil = Date.now() + IOS_IPHONE_SAFARI_OPENING_EXTRA_MS;
+        }
+
         // iPhone Safari with bottom tab bar can update visualViewport in two steps.
         // Apply the iPhone down-adjust immediately so the input does not first appear too high.
         if (isIPhoneSafariLike) {
@@ -1129,6 +1145,10 @@
         function (event) {
           lastUserGestureAt = Date.now();
 
+          if (isIPhoneSafariLike) {
+            iPhoneSafariOpeningExtraUntil = Date.now() + IOS_IPHONE_SAFARI_OPENING_EXTRA_MS;
+          }
+
           if (isTextInput(event.target)) {
             schedulePosition(event.target);
           } else {
@@ -1144,6 +1164,10 @@
         "pointerdown",
         function () {
           lastUserGestureAt = Date.now();
+
+          if (isIPhoneSafariLike) {
+            iPhoneSafariOpeningExtraUntil = Date.now() + IOS_IPHONE_SAFARI_OPENING_EXTRA_MS;
+          }
 
           setTimeout(scheduleByScan, 80);
           setTimeout(scheduleByScan, 250);
