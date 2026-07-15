@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=6.2'
+          'ServiceWorker.js?v=6.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "6.2";
+    const BUILD_VERSION = "6.3";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/b237895180314618cf76469e11763c35.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/df4014ef53b1a5a006f871700ff5129a.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "6.2",
+      productVersion: "6.3",
       showBanner: unityShowBanner,
     };
 
@@ -504,7 +504,7 @@
       // iPhone Safari / iPhone installed app can over-report the keyboard area.
       // Move only the iPhone Safari-like bottom-positioned input slightly down.
       // iPad still uses the separate Safari/PWA patch below.
-      const IOS_IPHONE_SAFARI_DOWN_ADJUST = 10;
+      const IOS_IPHONE_SAFARI_DOWN_ADJUST = 2;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
