@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=5.8'
+          'ServiceWorker.js?v=5.9'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "5.8";
+    const BUILD_VERSION = "5.9";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/6451096549c8090212ebfe81860012b8.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/9d678a47cb8b8a8eb192530a7559119c.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "5.8",
+      productVersion: "5.9",
       showBanner: unityShowBanner,
     };
 
@@ -508,7 +508,7 @@
       const IOS_IPHONE_SAFARI_DOWN_ADJUST = 2;
       const IOS_IPHONE_SAFARI_KEYBOARD_MIN = 220;
       const IOS_IPHONE_SAFARI_KEYBOARD_MAX = 330;
-      const IOS_IPHONE_SAFARI_KEYBOARD_RATIO = 0.33;
+      const IOS_IPHONE_SAFARI_KEYBOARD_RATIO = 0.34;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
