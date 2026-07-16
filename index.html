@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=7.2'
+          'ServiceWorker.js?v=7.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "7.2";
+    const BUILD_VERSION = "7.3";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/d2f0601d8dab33c2d49d3c86ed7978f2.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/31906df7823425e8894fc796516e540c.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "7.2",
+      productVersion: "7.3",
       showBanner: unityShowBanner,
     };
 
@@ -519,7 +519,7 @@
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_MIN = 280;
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_MAX = 420;
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_RATIO = 0.42;
-      const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 8;
+      const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 12;
 
       // visualViewport.offsetTop is normally positive when Safari's address/tab
       // bar is at the top. Bottom-tab-bar mode usually keeps it near 0.
