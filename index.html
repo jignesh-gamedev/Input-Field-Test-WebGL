@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=7.8'
+          'ServiceWorker.js?v=7.9'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "7.8";
+    const BUILD_VERSION = "7.9";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/c22748d545a362869c327ab375596ce0.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/26ce1e563c759b8ef3e8e018d40b6ec4.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "7.8",
+      productVersion: "7.9",
       showBanner: unityShowBanner,
     };
 
@@ -513,7 +513,7 @@
       const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_MIN = 150;
       const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_MAX = 230;
       const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_RATIO = 0.21;
-      const IOS_IPHONE_SAFARI_BOTTOM_UP_EXTRA = 4;
+      const IOS_IPHONE_SAFARI_BOTTOM_UP_EXTRA = 2;
 
       // Top tab bar values.
       // Top-tab Safari needs a little more bottom offset than bottom-tab Safari,
@@ -521,7 +521,7 @@
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_MIN = 235;
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_MAX = 330;
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_RATIO = 0.38;
-      const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 8;
+      const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 10;
 
       // visualViewport.offsetTop is normally positive when Safari's address/tab
       // bar is at the top. Bottom-tab-bar mode usually keeps it near 0.
