@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=8.7'
+          'ServiceWorker.js?v=8.8'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "8.7";
+    const BUILD_VERSION = "8.8";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/80476c35b615446d262756ae0acf3405.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/ae50e294d9d589d9ea44d2ae14d28cf5.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "8.7",
+      productVersion: "8.8",
       showBanner: unityShowBanner,
     };
 
@@ -523,11 +523,11 @@
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_RATIO = 0.38;
       const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 10;
 
-      // Final fine-tuning offsets for iPhone Safari only.
+      // Final fine-tune offsets for iPhone Safari only.
       // Negative value moves the native input DOWN.
       // Positive value moves the native input UP.
-      // Bottom tab bar is slightly high, so move it down a little.
-      // Top tab bar intersects with keyboard, so move it up a little.
+      // On this Safari setup the tab-bar detection branch is inverted during
+      // keyboard animation, so these are mapped in getStableInputBottom() below.
       const IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET = -10;
       const IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET = 14;
 
@@ -872,9 +872,15 @@
             ? IOS_IPHONE_SAFARI_TOP_UP_EXTRA
             : IOS_IPHONE_SAFARI_BOTTOM_UP_EXTRA;
 
+          // IMPORTANT:
+          // On the tested iPhone Safari builds, the cached top/bottom branch can
+          // be inverted while the keyboard is active. The user-facing final
+          // offsets are intentionally mapped opposite here so:
+          // - BOTTOM_FINAL_OFFSET affects the bottom-tab-bar case.
+          // - TOP_FINAL_OFFSET affects the top-tab-bar case.
           const iphoneFinalOffset = isTopTabBarMode
-            ? IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET
-            : IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET;
+            ? IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET
+            : IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET;
 
           return Math.max(
             INPUT_GAP,
