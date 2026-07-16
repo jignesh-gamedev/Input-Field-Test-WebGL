@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=8.1'
+          'ServiceWorker.js?v=8.2'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "8.1";
+    const BUILD_VERSION = "8.2";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/bcb58d22990ec614bbe642434bddb927.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/a84f65317bf05a817ccf2d02ab748db9.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "8.1",
+      productVersion: "8.2",
       showBanner: unityShowBanner,
     };
 
@@ -507,8 +507,8 @@
       // These two values directly control the CSS bottom value used for Unity's
       // native input on iPhone Safari.
       // Increase = move native input UP. Decrease = move native input DOWN.
-      const IOS_IPHONE_SAFARI_BOTTOM_INPUT_BOTTOM = 170;
-      const IOS_IPHONE_SAFARI_TOP_INPUT_BOTTOM = 390;
+      const IOS_IPHONE_SAFARI_BOTTOM_INPUT_BOTTOM = 150;
+      const IOS_IPHONE_SAFARI_TOP_INPUT_BOTTOM = 300;
 
       // Keep this as "auto" for production.
       // For testing only, set to "bottom" or "top" to verify the exact value.
