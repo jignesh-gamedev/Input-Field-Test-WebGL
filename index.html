@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=8.4'
+          'ServiceWorker.js?v=8.5'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "8.4";
+    const BUILD_VERSION = "8.5";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/7293db43428143dfc5b930f90b1a61d7.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/25b5503edb4dd3241452942594bb1c2e.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "8.4",
+      productVersion: "8.5",
       showBanner: unityShowBanner,
     };
 
@@ -528,7 +528,7 @@
       // Positive value moves the native input UP.
       // Bottom tab bar is slightly high, so move it down a little.
       // Top tab bar intersects with keyboard, so move it up a little.
-      const IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET = -10;
+      const IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET = 10;
       const IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET = 14;
 
       // visualViewport.offsetTop is normally positive when Safari's address/tab
