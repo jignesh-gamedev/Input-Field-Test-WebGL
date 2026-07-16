@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=9.1'
+          'ServiceWorker.js?v=9.2'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "9.1";
+    const BUILD_VERSION = "9.2";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/aa08e4ef825e8298c9b9f1fce46cc0d6.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/f108a76c82979ad597a49fffce304abb.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "9.1",
+      productVersion: "9.2",
       showBanner: unityShowBanner,
     };
 
@@ -528,7 +528,7 @@
       // Positive value moves the native input UP.
       // On this Safari setup the tab-bar detection branch is inverted during
       // keyboard animation, so these are mapped in getStableInputBottom() below.
-      const IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET = 8;
+      const IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET = -10;
       const IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET = 14;
 
       // visualViewport.offsetTop is normally positive when Safari's address/tab
@@ -879,8 +879,8 @@
           // - BOTTOM_FINAL_OFFSET affects the bottom-tab-bar case.
           // - TOP_FINAL_OFFSET affects the top-tab-bar case.
           const iphoneFinalOffset = isTopTabBarMode
-            ? IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET
-            : IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET;
+            ? IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET
+            : IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET;
 
           return Math.max(
             INPUT_GAP,
