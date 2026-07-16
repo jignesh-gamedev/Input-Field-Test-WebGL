@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=7.0'
+          'ServiceWorker.js?v=7.1'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "7.0";
+    const BUILD_VERSION = "7.1";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,20 +134,20 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/a218436d360dcd6cfbc0795ef03474ff.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/e6a58fbfe88c3a54ff13042536fe5163.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
-      codeUrl:
+		codeUrl:
         buildUrl + "/194b28bb486ebe088741a34a5e36d9e7.wasm.unityweb?v=" + BUILD_VERSION,
 
 
-      streamingAssetsUrl: "StreamingAssets",
+		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "7.0",
+      productVersion: "7.1",
       showBanner: unityShowBanner,
     };
 
@@ -731,6 +731,32 @@
       }
 
       function getStableInputBottom() {
+        /*
+          iPhone Safari with the bottom tab bar reports visualViewport / keyboard
+          height in multiple phases during the keyboard animation.
+
+          Important:
+          For iPhone Safari/PWA, do NOT use getEffectiveKeyboardHeight() here,
+          because that function can read the temporary live visualViewport value.
+          That temporary value is what causes the first position to appear too high
+          and then move again after Safari finishes its toolbar/keyboard animation.
+
+          Instead, use one stable predicted keyboard height for the full active
+          input session. Now IOS_IPHONE_SAFARI_KEYBOARD_RATIO / MIN / MAX really
+          controls the iPhone Safari position from the first frame.
+        */
+        if (isIPhoneSafariLike && hasTextInputSession()) {
+          const iphoneKeyboardHeight = getIPhoneSafariStableKeyboardHeight();
+
+          return Math.max(
+            INPUT_GAP,
+            iphoneKeyboardHeight
+            + INPUT_GAP
+            - IOS_IPHONE_SAFARI_DOWN_ADJUST
+            + IOS_IPHONE_SAFARI_UP_EXTRA
+          );
+        }
+
         const keyboardHeight = getEffectiveKeyboardHeight();
 
         const extraLift = isAndroidFacebookInAppBrowser
@@ -748,18 +774,6 @@
           INPUT_GAP,
           keyboardHeight + INPUT_GAP + extraLift
         );
-
-        if (isIPhoneSafariLike && keyboardLooksOpen) {
-          const iphoneBottom = Math.max(
-            INPUT_GAP,
-            candidateBottom
-            - IOS_IPHONE_SAFARI_DOWN_ADJUST
-            + IOS_IPHONE_SAFARI_UP_EXTRA
-          );
-
-          return iphoneBottom;
-        }
-
 
         if (keyboardLooksOpen) {
           lockedInputBottom = Math.max(
