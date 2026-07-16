@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=6.3'
+          'ServiceWorker.js?v=6.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "6.3";
+    const BUILD_VERSION = "6.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/df4014ef53b1a5a006f871700ff5129a.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/d7160d96c3834874d42d742e7a23e43d.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "6.3",
+      productVersion: "6.4",
       showBanner: unityShowBanner,
     };
 
@@ -501,10 +501,15 @@
       const IOS_FALLBACK_KEYBOARD_RATIO = 0.42;
       const IOS_SAFARI_INPUT_LIFT_EXTRA = 0;
 
-      // iPhone Safari / iPhone installed app can over-report the keyboard area.
-      // Move only the iPhone Safari-like bottom-positioned input slightly down.
-      // iPad still uses the separate Safari/PWA patch below.
+      // iPhone Safari / iPhone installed app:
+      // Safari bottom tab bar reports keyboard/visualViewport in multiple phases.
+      // Do not chase those live values on iPhone; use one stable predicted bottom
+      // during the whole keyboard session so the input does not jump high -> low -> correct.
       const IOS_IPHONE_SAFARI_DOWN_ADJUST = 2;
+      const IOS_IPHONE_SAFARI_KEYBOARD_MIN = 260;
+      const IOS_IPHONE_SAFARI_KEYBOARD_MAX = 360;
+      const IOS_IPHONE_SAFARI_KEYBOARD_RATIO = 0.34;
+      const IOS_IPHONE_SAFARI_UP_EXTRA = 20;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
@@ -658,6 +663,24 @@
         );
       }
 
+      function getIPhoneSafariStableKeyboardHeight() {
+        const baseHeight = Math.round(
+          Math.max(
+            getCSSUnityHeight(),
+            window.innerHeight || 0,
+            document.documentElement.clientHeight || 0,
+            window.visualViewport ? window.visualViewport.height : 0
+          )
+        );
+
+        const estimated = Math.round(baseHeight * IOS_IPHONE_SAFARI_KEYBOARD_RATIO);
+
+        return Math.max(
+          IOS_IPHONE_SAFARI_KEYBOARD_MIN,
+          Math.min(IOS_IPHONE_SAFARI_KEYBOARD_MAX, estimated)
+        );
+      }
+
       function getAndroidMessengerFallbackKeyboardHeight() {
         const baseHeight = Math.round(
           Math.max(
@@ -716,343 +739,326 @@
             ? CHROME_BROWSER_INPUT_EXTRA_LIFT
             : 0);
 
-        const iPhoneSafariDownAdjust = isIPhoneSafariLike
-          ? IOS_IPHONE_SAFARI_DOWN_ADJUST
-          : 0;
-
-        const candidateBottom = Math.max(
-          INPUT_GAP,
-          keyboardHeight + INPUT_GAP + extraLift - iPhoneSafariDownAdjust
-        );
-
         const keyboardLooksOpen =
           keyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
           lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
           hasTextInputSession();
 
-        if (keyboardLooksOpen) {
-          if (isIPhoneSafariLike) {
-            // Do not keep the maximum old bottom value on iPhone Safari/PWA.
-            // Safari can briefly over-report the keyboard area, which causes
-            // the input to stay too high with a large gap.
-            lockedInputBottom = candidateBottom;
-            return candidateBottom;
-          }
-
-          lockedInputBottom = Math.max(
-            lockedInputBottom,
-            candidateBottom,
-            Math.max(
-              INPUT_GAP,
-              lastKeyboardHeight + INPUT_GAP + extraLift - iPhoneSafariDownAdjust
-            )
+        if (isIPhoneSafariLike && keyboardLooksOpen) {
+          const iphoneBottom = Math.max(
+            INPUT_GAP,
+            candidateBottom
+            - IOS_IPHONE_SAFARI_DOWN_ADJUST
+            + IOS_IPHONE_SAFARI_UP_EXTRA
           );
 
-          return lockedInputBottom;
+          return iphoneBottom;
         }
 
-        return candidateBottom;
+        lockedInputBottom = stableBottom;
+        return stableBottom;
       }
+
+      const candidateBottom = Math.max(
+        INPUT_GAP,
+        keyboardHeight + INPUT_GAP + extraLift
+      );
+
+      if (keyboardLooksOpen) {
+        lockedInputBottom = Math.max(
+          lockedInputBottom,
+          candidateBottom,
+          lastKeyboardHeight + INPUT_GAP + extraLift
+        );
+
+        return lockedInputBottom;
+      }
+
+      return candidateBottom;
+    }
 
       function getIOSSafariTransformLift() {
-        const keyboardHeight = getEffectiveKeyboardHeight();
+      const keyboardHeight = getEffectiveKeyboardHeight();
 
-        const candidateLift = Math.max(
-          INPUT_GAP,
-          keyboardHeight + INPUT_GAP + IOS_SAFARI_INPUT_LIFT_EXTRA
+      const candidateLift = Math.max(
+        INPUT_GAP,
+        keyboardHeight + INPUT_GAP + IOS_SAFARI_INPUT_LIFT_EXTRA
+      );
+
+      const keyboardLooksOpen =
+        keyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
+        lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
+        hasTextInputSession();
+
+      if (keyboardLooksOpen) {
+        lockedInputBottom = Math.max(
+          lockedInputBottom,
+          candidateLift,
+          lastKeyboardHeight + INPUT_GAP + IOS_SAFARI_INPUT_LIFT_EXTRA
         );
 
-        const keyboardLooksOpen =
-          keyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
-          lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
-          hasTextInputSession();
-
-        if (keyboardLooksOpen) {
-          lockedInputBottom = Math.max(
-            lockedInputBottom,
-            candidateLift,
-            lastKeyboardHeight + INPUT_GAP + IOS_SAFARI_INPUT_LIFT_EXTRA
-          );
-
-          return lockedInputBottom;
-        }
-
-        return candidateLift;
+        return lockedInputBottom;
       }
 
-      function resetKeyboardSessionIfClosed() {
-        const rawKeyboardHeight = getRawKeyboardHeight();
+      return candidateLift;
+    }
 
-        if (!findCandidateInput() && rawKeyboardHeight <= KEYBOARD_OPEN_THRESHOLD) {
-          lastKeyboardHeight = 0;
-          lockedInputBottom = 0;
-          activeInput = null;
-          activeOkButton = null;
-          keyboardSessionUntil = 0;
-        }
+    function resetKeyboardSessionIfClosed() {
+      const rawKeyboardHeight = getRawKeyboardHeight();
+
+      if (!findCandidateInput() && rawKeyboardHeight <= KEYBOARD_OPEN_THRESHOLD) {
+        lastKeyboardHeight = 0;
+        lockedInputBottom = 0;
+        activeInput = null;
+        activeOkButton = null;
+        keyboardSessionUntil = 0;
       }
+    }
 
-      function findUnityOkButton(input) {
-        if (!input) return null;
+    function findUnityOkButton(input) {
+      if (!input) return null;
 
-        const parent = input.parentElement;
+      const parent = input.parentElement;
 
-        if (parent) {
-          const nearby = parent.querySelectorAll("button, input[type='button'], input[type='submit']");
+      if (parent) {
+        const nearby = parent.querySelectorAll("button, input[type='button'], input[type='submit']");
 
-          for (const el of nearby) {
-            if (isPossibleOkButton(el)) {
-              lastOkButton = el;
-              return el;
-            }
-          }
-        }
-
-        const allButtons = document.querySelectorAll("button, input[type='button'], input[type='submit']");
-
-        for (const el of allButtons) {
+        for (const el of nearby) {
           if (isPossibleOkButton(el)) {
             lastOkButton = el;
             return el;
           }
         }
+      }
 
-        if (lastOkButton && document.body.contains(lastOkButton)) {
-          return lastOkButton;
+      const allButtons = document.querySelectorAll("button, input[type='button'], input[type='submit']");
+
+      for (const el of allButtons) {
+        if (isPossibleOkButton(el)) {
+          lastOkButton = el;
+          return el;
         }
+      }
 
-        const inputRect = input.getBoundingClientRect();
-        let bestButton = null;
-        let bestDistance = Infinity;
+      if (lastOkButton && document.body.contains(lastOkButton)) {
+        return lastOkButton;
+      }
 
-        allButtons.forEach(function (btn) {
-          if (!document.body.contains(btn)) return;
+      const inputRect = input.getBoundingClientRect();
+      let bestButton = null;
+      let bestDistance = Infinity;
 
-          const rect = btn.getBoundingClientRect();
+      allButtons.forEach(function (btn) {
+        if (!document.body.contains(btn)) return;
 
-          const distance =
-            Math.abs(rect.top - inputRect.top) +
-            Math.abs(rect.left - inputRect.right);
+        const rect = btn.getBoundingClientRect();
 
-          if (distance < bestDistance) {
-            bestDistance = distance;
-            bestButton = btn;
-          }
-        });
+        const distance =
+          Math.abs(rect.top - inputRect.top) +
+          Math.abs(rect.left - inputRect.right);
 
-        if (bestButton) {
-          lastOkButton = bestButton;
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestButton = btn;
         }
+      });
 
-        return bestButton;
+      if (bestButton) {
+        lastOkButton = bestButton;
       }
 
-      function applyInputStyle(input, okWidth, bottom, lift) {
-        const transformValue = lift > 0
-          ? "translate3d(0, -" + lift + "px, 0)"
-          : "none";
+      return bestButton;
+    }
 
-        input.style.setProperty("position", "fixed", "important");
-        input.style.setProperty("left", INPUT_LEFT + "px", "important");
-        input.style.setProperty("right", (INPUT_RIGHT + okWidth) + "px", "important");
-        input.style.setProperty("bottom", bottom + "px", "important");
-        input.style.setProperty("top", "auto", "important");
+    function applyInputStyle(input, okWidth, bottom, lift) {
+      const transformValue = lift > 0
+        ? "translate3d(0, -" + lift + "px, 0)"
+        : "none";
 
-        input.style.setProperty(
-          "width",
-          "calc(100vw - " + (INPUT_LEFT + INPUT_RIGHT + okWidth) + "px)",
-          "important"
-        );
+      input.style.setProperty("position", "fixed", "important");
+      input.style.setProperty("left", INPUT_LEFT + "px", "important");
+      input.style.setProperty("right", (INPUT_RIGHT + okWidth) + "px", "important");
+      input.style.setProperty("bottom", bottom + "px", "important");
+      input.style.setProperty("top", "auto", "important");
 
-        input.style.setProperty("height", INPUT_HEIGHT + "px", "important");
-        input.style.setProperty("min-height", INPUT_HEIGHT + "px", "important");
+      input.style.setProperty(
+        "width",
+        "calc(100vw - " + (INPUT_LEFT + INPUT_RIGHT + okWidth) + "px)",
+        "important"
+      );
 
-        input.style.setProperty("z-index", "2147483646", "important");
-        input.style.setProperty("display", "block", "important");
-        input.style.setProperty("visibility", "visible", "important");
-        input.style.setProperty("opacity", "1", "important");
+      input.style.setProperty("height", INPUT_HEIGHT + "px", "important");
+      input.style.setProperty("min-height", INPUT_HEIGHT + "px", "important");
 
-        input.style.setProperty("font-size", "16px", "important");
-        input.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
-        input.style.setProperty("padding", "0 12px", "important");
-        input.style.setProperty("box-sizing", "border-box", "important");
+      input.style.setProperty("z-index", "2147483646", "important");
+      input.style.setProperty("display", "block", "important");
+      input.style.setProperty("visibility", "visible", "important");
+      input.style.setProperty("opacity", "1", "important");
 
-        input.style.setProperty("background", "#ffffff", "important");
-        input.style.setProperty("color", "#000000", "important");
-        input.style.setProperty("outline", "none", "important");
-        input.style.setProperty("transform", transformValue, "important");
-        input.style.setProperty("-webkit-transform", transformValue, "important");
-        input.style.setProperty("will-change", "transform", "important");
-      }
+      input.style.setProperty("font-size", "16px", "important");
+      input.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
+      input.style.setProperty("padding", "0 12px", "important");
+      input.style.setProperty("box-sizing", "border-box", "important");
 
-      function applyOkButtonStyle(button, bottom, lift) {
-        const transformValue = lift > 0
-          ? "translate3d(0, -" + lift + "px, 0)"
-          : "none";
+      input.style.setProperty("background", "#ffffff", "important");
+      input.style.setProperty("color", "#000000", "important");
+      input.style.setProperty("outline", "none", "important");
+      input.style.setProperty("transform", transformValue, "important");
+      input.style.setProperty("-webkit-transform", transformValue, "important");
+      input.style.setProperty("will-change", "transform", "important");
+    }
 
-        button.style.setProperty("position", "fixed", "important");
-        button.style.setProperty("right", INPUT_RIGHT + "px", "important");
-        button.style.setProperty("bottom", bottom + "px", "important");
-        button.style.setProperty("top", "auto", "important");
-        button.style.setProperty("left", "auto", "important");
+    function applyOkButtonStyle(button, bottom, lift) {
+      const transformValue = lift > 0
+        ? "translate3d(0, -" + lift + "px, 0)"
+        : "none";
 
-        button.style.setProperty("width", OK_BUTTON_WIDTH + "px", "important");
-        button.style.setProperty("height", INPUT_HEIGHT + "px", "important");
-        button.style.setProperty("min-height", INPUT_HEIGHT + "px", "important");
+      button.style.setProperty("position", "fixed", "important");
+      button.style.setProperty("right", INPUT_RIGHT + "px", "important");
+      button.style.setProperty("bottom", bottom + "px", "important");
+      button.style.setProperty("top", "auto", "important");
+      button.style.setProperty("left", "auto", "important");
 
-        button.style.setProperty("z-index", "2147483647", "important");
-        button.style.setProperty("display", "block", "important");
-        button.style.setProperty("visibility", "visible", "important");
-        button.style.setProperty("opacity", "1", "important");
+      button.style.setProperty("width", OK_BUTTON_WIDTH + "px", "important");
+      button.style.setProperty("height", INPUT_HEIGHT + "px", "important");
+      button.style.setProperty("min-height", INPUT_HEIGHT + "px", "important");
 
-        button.style.setProperty("font-size", "14px", "important");
-        button.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
-        button.style.setProperty("padding", "0", "important");
-        button.style.setProperty("margin", "0", "important");
-        button.style.setProperty("box-sizing", "border-box", "important");
+      button.style.setProperty("z-index", "2147483647", "important");
+      button.style.setProperty("display", "block", "important");
+      button.style.setProperty("visibility", "visible", "important");
+      button.style.setProperty("opacity", "1", "important");
 
-        button.style.setProperty("background", "#ffffff", "important");
-        button.style.setProperty("color", "#000000", "important");
-        button.style.setProperty("border", INPUT_BORDER_STYLE, "important");
-        button.style.setProperty("border-left", "1px solid " + INPUT_BORDER_COLOR, "important");
-        button.style.setProperty("border-radius", "0 8px 8px 0", "important");
-        button.style.setProperty("transform", transformValue, "important");
-        button.style.setProperty("-webkit-transform", transformValue, "important");
-        button.style.setProperty("will-change", "transform", "important");
-      }
+      button.style.setProperty("font-size", "14px", "important");
+      button.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
+      button.style.setProperty("padding", "0", "important");
+      button.style.setProperty("margin", "0", "important");
+      button.style.setProperty("box-sizing", "border-box", "important");
 
-      function focusInputForAndroidMessenger(input) {
-        if (!isAndroidFacebookInAppBrowser || !input) return;
+      button.style.setProperty("background", "#ffffff", "important");
+      button.style.setProperty("color", "#000000", "important");
+      button.style.setProperty("border", INPUT_BORDER_STYLE, "important");
+      button.style.setProperty("border-left", "1px solid " + INPUT_BORDER_COLOR, "important");
+      button.style.setProperty("border-radius", "0 8px 8px 0", "important");
+      button.style.setProperty("transform", transformValue, "important");
+      button.style.setProperty("-webkit-transform", transformValue, "important");
+      button.style.setProperty("will-change", "transform", "important");
+    }
 
-        // Mobile WebViews usually open the keyboard only when focus is called
-        // very close to a real user gesture.
-        if (Date.now() - lastUserGestureAt > 1400) return;
+    function focusInputForAndroidMessenger(input) {
+      if (!isAndroidFacebookInAppBrowser || !input) return;
 
+      // Mobile WebViews usually open the keyboard only when focus is called
+      // very close to a real user gesture.
+      if (Date.now() - lastUserGestureAt > 1400) return;
+
+      try {
+        input.focus({ preventScroll: true });
+      } catch (e) {
         try {
-          input.focus({ preventScroll: true });
-        } catch (e) {
-          try {
-            input.focus();
-          } catch (e2) { }
-        }
+          input.focus();
+        } catch (e2) { }
+      }
+    }
+
+    function positionNativeInputAndUnityOkButton(input) {
+      const targetInput = isTextInput(input) ? input : findCandidateInput();
+
+      if (!targetInput) return;
+
+      isApplyingStyles = true;
+
+      activeInput = targetInput;
+      keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3200);
+
+      focusInputForAndroidMessenger(targetInput);
+
+      activeOkButton = findUnityOkButton(targetInput);
+
+      const okWidth = activeOkButton ? OK_BUTTON_WIDTH : 0;
+
+      let bottom;
+      let lift;
+
+      if (useIOSSafariTransformLift) {
+        bottom = 0;
+        lift = getIOSSafariTransformLift();
+      } else {
+        bottom = getStableInputBottom();
+        lift = 0;
       }
 
-      function positionNativeInputAndUnityOkButton(input) {
-        const targetInput = isTextInput(input) ? input : findCandidateInput();
+      applyInputStyle(targetInput, okWidth, bottom, lift);
 
-        if (!targetInput) return;
+      if (activeOkButton) {
+        applyOkButtonStyle(activeOkButton, bottom, lift);
 
-        isApplyingStyles = true;
-
-        activeInput = targetInput;
-        keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3200);
-
-        focusInputForAndroidMessenger(targetInput);
-
-        activeOkButton = findUnityOkButton(targetInput);
-
-        const okWidth = activeOkButton ? OK_BUTTON_WIDTH : 0;
-
-        let bottom;
-        let lift;
-
-        if (useIOSSafariTransformLift) {
-          bottom = 0;
-          lift = getIOSSafariTransformLift();
-        } else {
-          bottom = getStableInputBottom();
-          lift = 0;
-        }
-
-        applyInputStyle(targetInput, okWidth, bottom, lift);
-
-        if (activeOkButton) {
-          applyOkButtonStyle(activeOkButton, bottom, lift);
-
-          targetInput.style.setProperty("border", INPUT_BORDER_STYLE, "important");
-          targetInput.style.setProperty("border-right", "0", "important");
-          targetInput.style.setProperty("border-radius", "8px 0 0 8px", "important");
-        } else {
-          targetInput.style.setProperty("border", INPUT_BORDER_STYLE, "important");
-          targetInput.style.setProperty("border-radius", "8px", "important");
-        }
-
-        window.scrollTo(0, 0);
-
-        setTimeout(function () {
-          isApplyingStyles = false;
-        }, 0);
+        targetInput.style.setProperty("border", INPUT_BORDER_STYLE, "important");
+        targetInput.style.setProperty("border-right", "0", "important");
+        targetInput.style.setProperty("border-radius", "8px 0 0 8px", "important");
+      } else {
+        targetInput.style.setProperty("border", INPUT_BORDER_STYLE, "important");
+        targetInput.style.setProperty("border-radius", "8px", "important");
       }
 
-      function updatePosition() {
-        const candidate = findCandidateInput();
+      window.scrollTo(0, 0);
 
-        if (candidate) {
+      setTimeout(function () {
+        isApplyingStyles = false;
+      }, 0);
+    }
+
+    function updatePosition() {
+      const candidate = findCandidateInput();
+
+      if (candidate) {
+        positionNativeInputAndUnityOkButton(candidate);
+        return;
+      }
+
+      if (activeInput && document.body.contains(activeInput)) {
+        positionNativeInputAndUnityOkButton(activeInput);
+      }
+    }
+
+    function startPositionLoop(input) {
+      if (positionLoopTimer) {
+        clearInterval(positionLoopTimer);
+        positionLoopTimer = null;
+      }
+
+      const startedAt = Date.now();
+
+      positionLoopTimer = setInterval(function () {
+        const candidate = findCandidateInput() || input;
+
+        if (candidate && document.body.contains(candidate)) {
           positionNativeInputAndUnityOkButton(candidate);
-          return;
         }
 
-        if (activeInput && document.body.contains(activeInput)) {
-          positionNativeInputAndUnityOkButton(activeInput);
-        }
-      }
-
-      function startPositionLoop(input) {
-        if (positionLoopTimer) {
+        if (Date.now() - startedAt > 4800) {
           clearInterval(positionLoopTimer);
           positionLoopTimer = null;
         }
+      }, 50);
+    }
 
-        const startedAt = Date.now();
+    function schedulePosition(input) {
+      const target = isTextInput(input) ? input : findCandidateInput();
 
-        positionLoopTimer = setInterval(function () {
-          const candidate = findCandidateInput() || input;
+      if (!target) return;
 
-          if (candidate && document.body.contains(candidate)) {
-            positionNativeInputAndUnityOkButton(candidate);
-          }
-
-          if (Date.now() - startedAt > 4800) {
-            clearInterval(positionLoopTimer);
-            positionLoopTimer = null;
-          }
-        }, 50);
+      if (clearSessionTimer) {
+        clearTimeout(clearSessionTimer);
+        clearSessionTimer = null;
       }
 
-      function schedulePosition(input) {
-        const target = isTextInput(input) ? input : findCandidateInput();
+      activeInput = target;
+      keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3400);
 
-        if (!target) return;
-
-        if (clearSessionTimer) {
-          clearTimeout(clearSessionTimer);
-          clearSessionTimer = null;
-        }
-
-        activeInput = target;
-        keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3400);
-
-        // iPhone Safari with bottom tab bar can update visualViewport in two steps.
-        // Apply the iPhone down-adjust immediately so the input does not first appear too high.
-        if (isIPhoneSafariLike) {
-          positionNativeInputAndUnityOkButton(target);
-
-          requestAnimationFrame(function () {
-            positionNativeInputAndUnityOkButton(target);
-          });
-
-          setTimeout(function () {
-            positionNativeInputAndUnityOkButton(target);
-          }, 0);
-
-          setTimeout(function () {
-            positionNativeInputAndUnityOkButton(target);
-          }, 16);
-
-          setTimeout(function () {
-            positionNativeInputAndUnityOkButton(target);
-          }, 32);
-        }
+      // iPhone Safari with bottom tab bar can update visualViewport in two steps.
+      // Apply the iPhone down-adjust immediately so the input does not first appear too high.
+      if (isIPhoneSafariLike) {
+        positionNativeInputAndUnityOkButton(target);
 
         requestAnimationFrame(function () {
           positionNativeInputAndUnityOkButton(target);
@@ -1060,194 +1066,215 @@
 
         setTimeout(function () {
           positionNativeInputAndUnityOkButton(target);
-        }, 50);
+        }, 0);
 
         setTimeout(function () {
           positionNativeInputAndUnityOkButton(target);
-        }, 150);
+        }, 16);
 
         setTimeout(function () {
           positionNativeInputAndUnityOkButton(target);
-        }, 300);
-
-        setTimeout(function () {
-          positionNativeInputAndUnityOkButton(target);
-        }, 650);
-
-        setTimeout(function () {
-          positionNativeInputAndUnityOkButton(findCandidateInput() || target);
-        }, 1100);
-
-        setTimeout(function () {
-          positionNativeInputAndUnityOkButton(findCandidateInput() || target);
-        }, 1800);
-
-        startPositionLoop(target);
+        }, 32);
       }
 
-      function scheduleByScan() {
+      requestAnimationFrame(function () {
+        positionNativeInputAndUnityOkButton(target);
+      });
+
+      setTimeout(function () {
+        positionNativeInputAndUnityOkButton(target);
+      }, 50);
+
+      setTimeout(function () {
+        positionNativeInputAndUnityOkButton(target);
+      }, 150);
+
+      setTimeout(function () {
+        positionNativeInputAndUnityOkButton(target);
+      }, 300);
+
+      setTimeout(function () {
+        positionNativeInputAndUnityOkButton(target);
+      }, 650);
+
+      setTimeout(function () {
+        positionNativeInputAndUnityOkButton(findCandidateInput() || target);
+      }, 1100);
+
+      setTimeout(function () {
+        positionNativeInputAndUnityOkButton(findCandidateInput() || target);
+      }, 1800);
+
+      startPositionLoop(target);
+    }
+
+    function scheduleByScan() {
+      const candidate = findCandidateInput();
+
+      if (candidate) {
+        schedulePosition(candidate);
+      }
+    }
+
+    function immediateMessengerFocusFromUserGesture() {
+      if (!isAndroidFacebookInAppBrowser) return;
+
+      lastUserGestureAt = Date.now();
+
+      const candidate = findCandidateInput();
+      if (!candidate) return;
+
+      activeInput = candidate;
+      keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 4200);
+
+      // This must run synchronously inside the real user gesture.
+      // Android Messenger often blocks keyboard opening when focus happens
+      // from requestAnimationFrame/setTimeout after Unity creates the input.
+      focusInputForAndroidMessenger(candidate);
+      positionNativeInputAndUnityOkButton(candidate);
+    }
+
+    document.addEventListener(
+      "focusin",
+      function (event) {
+        if (isTextInput(event.target)) {
+          schedulePosition(event.target);
+        } else {
+          setTimeout(scheduleByScan, 50);
+          setTimeout(scheduleByScan, 200);
+        }
+      },
+      true
+    );
+
+    document.addEventListener(
+      "touchstart",
+      function (event) {
+        lastUserGestureAt = Date.now();
+
+        if (isIPhoneSafariLike) { }
+
+        if (isTextInput(event.target)) {
+          schedulePosition(event.target);
+        } else {
+          setTimeout(scheduleByScan, 80);
+          setTimeout(scheduleByScan, 250);
+          setTimeout(scheduleByScan, 500);
+        }
+      },
+      true
+    );
+
+    document.addEventListener(
+      "pointerdown",
+      function () {
+        lastUserGestureAt = Date.now();
+
+        if (isIPhoneSafariLike) { }
+
+        setTimeout(scheduleByScan, 80);
+        setTimeout(scheduleByScan, 250);
+      },
+      true
+    );
+
+    document.addEventListener(
+      "click",
+      function () {
+        lastUserGestureAt = Date.now();
+
+        setTimeout(scheduleByScan, 30);
+        setTimeout(scheduleByScan, 160);
+        setTimeout(scheduleByScan, 360);
+      },
+      true
+    );
+
+    // Bubble-phase listeners run after Unity's canvas handlers in many WebViews.
+    // This gives Messenger a better chance to focus the Unity-created native input
+    // during the same trusted tap, which can open the keyboard on the first tap.
+    document.addEventListener("touchend", immediateMessengerFocusFromUserGesture, false);
+    document.addEventListener("mouseup", immediateMessengerFocusFromUserGesture, false);
+    document.addEventListener("click", immediateMessengerFocusFromUserGesture, false);
+
+    document.addEventListener(
+      "focusout",
+      function (event) {
+        if (event.target === activeInput) {
+          keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3000);
+
+          if (clearSessionTimer) {
+            clearTimeout(clearSessionTimer);
+          }
+
+          clearSessionTimer = setTimeout(function () {
+            const candidate = findCandidateInput();
+
+            if (candidate) {
+              activeInput = candidate;
+              schedulePosition(candidate);
+              return;
+            }
+
+            resetKeyboardSessionIfClosed();
+          }, 1200);
+        }
+      },
+      true
+    );
+
+    window.addEventListener("resize", function () {
+      requestAnimationFrame(updatePosition);
+      setTimeout(updatePosition, 100);
+      setTimeout(updatePosition, 300);
+      setTimeout(scheduleByScan, 600);
+    });
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", function () {
+        requestAnimationFrame(updatePosition);
+        setTimeout(scheduleByScan, 120);
+        setTimeout(scheduleByScan, 420);
+      });
+
+      window.visualViewport.addEventListener("scroll", function () {
+        requestAnimationFrame(updatePosition);
+        setTimeout(scheduleByScan, 120);
+      });
+    }
+
+    if ("virtualKeyboard" in navigator) {
+      try {
+        navigator.virtualKeyboard.addEventListener("geometrychange", function () {
+          requestAnimationFrame(updatePosition);
+          setTimeout(scheduleByScan, 120);
+        });
+      } catch (e) { }
+    }
+
+    const observer = new MutationObserver(function () {
+      if (isApplyingStyles) return;
+
+      if (mutationDebounceTimer) {
+        clearTimeout(mutationDebounceTimer);
+      }
+
+      mutationDebounceTimer = setTimeout(function () {
         const candidate = findCandidateInput();
 
         if (candidate) {
           schedulePosition(candidate);
         }
-      }
+      }, 40);
+    });
 
-      function immediateMessengerFocusFromUserGesture() {
-        if (!isAndroidFacebookInAppBrowser) return;
-
-        lastUserGestureAt = Date.now();
-
-        const candidate = findCandidateInput();
-        if (!candidate) return;
-
-        activeInput = candidate;
-        keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 4200);
-
-        // This must run synchronously inside the real user gesture.
-        // Android Messenger often blocks keyboard opening when focus happens
-        // from requestAnimationFrame/setTimeout after Unity creates the input.
-        focusInputForAndroidMessenger(candidate);
-        positionNativeInputAndUnityOkButton(candidate);
-      }
-
-      document.addEventListener(
-        "focusin",
-        function (event) {
-          if (isTextInput(event.target)) {
-            schedulePosition(event.target);
-          } else {
-            setTimeout(scheduleByScan, 50);
-            setTimeout(scheduleByScan, 200);
-          }
-        },
-        true
-      );
-
-      document.addEventListener(
-        "touchstart",
-        function (event) {
-          lastUserGestureAt = Date.now();
-
-          if (isTextInput(event.target)) {
-            schedulePosition(event.target);
-          } else {
-            setTimeout(scheduleByScan, 80);
-            setTimeout(scheduleByScan, 250);
-            setTimeout(scheduleByScan, 500);
-          }
-        },
-        true
-      );
-
-      document.addEventListener(
-        "pointerdown",
-        function () {
-          lastUserGestureAt = Date.now();
-
-          setTimeout(scheduleByScan, 80);
-          setTimeout(scheduleByScan, 250);
-        },
-        true
-      );
-
-      document.addEventListener(
-        "click",
-        function () {
-          lastUserGestureAt = Date.now();
-
-          setTimeout(scheduleByScan, 30);
-          setTimeout(scheduleByScan, 160);
-          setTimeout(scheduleByScan, 360);
-        },
-        true
-      );
-
-      // Bubble-phase listeners run after Unity's canvas handlers in many WebViews.
-      // This gives Messenger a better chance to focus the Unity-created native input
-      // during the same trusted tap, which can open the keyboard on the first tap.
-      document.addEventListener("touchend", immediateMessengerFocusFromUserGesture, false);
-      document.addEventListener("mouseup", immediateMessengerFocusFromUserGesture, false);
-      document.addEventListener("click", immediateMessengerFocusFromUserGesture, false);
-
-      document.addEventListener(
-        "focusout",
-        function (event) {
-          if (event.target === activeInput) {
-            keyboardSessionUntil = Math.max(keyboardSessionUntil, Date.now() + 3000);
-
-            if (clearSessionTimer) {
-              clearTimeout(clearSessionTimer);
-            }
-
-            clearSessionTimer = setTimeout(function () {
-              const candidate = findCandidateInput();
-
-              if (candidate) {
-                activeInput = candidate;
-                schedulePosition(candidate);
-                return;
-              }
-
-              resetKeyboardSessionIfClosed();
-            }, 1200);
-          }
-        },
-        true
-      );
-
-      window.addEventListener("resize", function () {
-        requestAnimationFrame(updatePosition);
-        setTimeout(updatePosition, 100);
-        setTimeout(updatePosition, 300);
-        setTimeout(scheduleByScan, 600);
-      });
-
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", function () {
-          requestAnimationFrame(updatePosition);
-          setTimeout(scheduleByScan, 120);
-          setTimeout(scheduleByScan, 420);
-        });
-
-        window.visualViewport.addEventListener("scroll", function () {
-          requestAnimationFrame(updatePosition);
-          setTimeout(scheduleByScan, 120);
-        });
-      }
-
-      if ("virtualKeyboard" in navigator) {
-        try {
-          navigator.virtualKeyboard.addEventListener("geometrychange", function () {
-            requestAnimationFrame(updatePosition);
-            setTimeout(scheduleByScan, 120);
-          });
-        } catch (e) { }
-      }
-
-      const observer = new MutationObserver(function () {
-        if (isApplyingStyles) return;
-
-        if (mutationDebounceTimer) {
-          clearTimeout(mutationDebounceTimer);
-        }
-
-        mutationDebounceTimer = setTimeout(function () {
-          const candidate = findCandidateInput();
-
-          if (candidate) {
-            schedulePosition(candidate);
-          }
-        }, 40);
-      });
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["style", "class", "value"]
-      });
-    })();
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style", "class", "value"]
+    });
+    }) ();
   </script>
   <script>
     (function () {
