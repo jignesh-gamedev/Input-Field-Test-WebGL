@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=7.6'
+          'ServiceWorker.js?v=7.7'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "7.6";
+    const BUILD_VERSION = "7.7";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/a26a8acfc23429b5375198a039a6af57.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/00bc8f35c054dd310ff234c63c230bb2.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "7.6",
+      productVersion: "7.7",
       showBanner: unityShowBanner,
     };
 
@@ -512,7 +512,7 @@
       // reserves extra browser chrome space above the keyboard.
       const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_MIN = 150;
       const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_MAX = 230;
-      const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_RATIO = 0.23;
+      const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_RATIO = 0.22;
       const IOS_IPHONE_SAFARI_BOTTOM_UP_EXTRA = 4;
 
       // Top tab bar values.
@@ -520,7 +520,7 @@
       // but it should still be stable and should not use live keyboard height.
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_MIN = 235;
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_MAX = 330;
-      const IOS_IPHONE_SAFARI_TOP_KEYBOARD_RATIO = 0.36;
+      const IOS_IPHONE_SAFARI_TOP_KEYBOARD_RATIO = 0.37;
       const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 8;
 
       // visualViewport.offsetTop is normally positive when Safari's address/tab
