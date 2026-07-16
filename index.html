@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=7.4'
+          'ServiceWorker.js?v=7.5'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "7.4";
+    const BUILD_VERSION = "7.5";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/74d6da2c44b9f8148de8ee556b3cfced.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/f1a2234e322b66d54e4d56b6e4883e42.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "7.4",
+      productVersion: "7.5",
       showBanner: unityShowBanner,
     };
 
@@ -524,12 +524,6 @@
       // visualViewport.offsetTop is normally positive when Safari's address/tab
       // bar is at the top. Bottom-tab-bar mode usually keeps it near 0.
       const IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD = 2;
-
-      // Final safety guard: if iPhone Safari reports a smaller visualViewport
-      // than our predicted position, lift the native input only enough so it
-      // does not intersect the keyboard / Safari bottom browser chrome.
-      const IOS_IPHONE_SAFARI_VISIBLE_BOTTOM_GAP = 10;
-      const IOS_IPHONE_SAFARI_MAX_INTERSECTION_CORRECTION = 140;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
@@ -1007,46 +1001,6 @@
         return bestButton;
       }
 
-      function correctIPhoneSafariKeyboardIntersection(input, okButton, currentBottom) {
-        if (!isIPhoneSafariLike || !window.visualViewport || !input) {
-          return currentBottom;
-        }
-
-        const rect = input.getBoundingClientRect();
-        const viewport = window.visualViewport;
-
-        // In iOS Safari, visualViewport.height represents the area still visible
-        // above the keyboard. offsetTop is included for top-address-bar mode.
-        const visibleBottom = Math.round(
-          (viewport.offsetTop || 0) + viewport.height
-        );
-
-        const maxAllowedInputBottom = visibleBottom - IOS_IPHONE_SAFARI_VISIBLE_BOTTOM_GAP;
-        const overlap = Math.ceil(rect.bottom - maxAllowedInputBottom);
-
-        if (overlap <= 0) {
-          return currentBottom;
-        }
-
-        const correction = Math.min(
-          IOS_IPHONE_SAFARI_MAX_INTERSECTION_CORRECTION,
-          overlap
-        );
-
-        const correctedBottom = Math.max(
-          INPUT_GAP,
-          currentBottom + correction
-        );
-
-        input.style.setProperty("bottom", correctedBottom + "px", "important");
-
-        if (okButton) {
-          okButton.style.setProperty("bottom", correctedBottom + "px", "important");
-        }
-
-        return correctedBottom;
-      }
-
       function applyInputStyle(input, okWidth, bottom, lift) {
         const transformValue = lift > 0
           ? "translate3d(0, -" + lift + "px, 0)"
@@ -1175,17 +1129,6 @@
         } else {
           targetInput.style.setProperty("border", INPUT_BORDER_STYLE, "important");
           targetInput.style.setProperty("border-radius", "8px", "important");
-        }
-
-        // Last-pass guard for iPhone Safari top-tab-bar mode. This does not
-        // change the predicted bottom value unless the input is actually below
-        // the visible viewport and touching/intersecting the keyboard.
-        if (!useIOSSafariTransformLift) {
-          bottom = correctIPhoneSafariKeyboardIntersection(
-            targetInput,
-            activeOkButton,
-            bottom
-          );
         }
 
         window.scrollTo(0, 0);
