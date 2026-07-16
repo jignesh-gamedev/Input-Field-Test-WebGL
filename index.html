@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=7.3'
+          'ServiceWorker.js?v=7.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "7.3";
+    const BUILD_VERSION = "7.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/31906df7823425e8894fc796516e540c.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/74d6da2c44b9f8148de8ee556b3cfced.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "7.3",
+      productVersion: "7.4",
       showBanner: unityShowBanner,
     };
 
@@ -523,7 +523,13 @@
 
       // visualViewport.offsetTop is normally positive when Safari's address/tab
       // bar is at the top. Bottom-tab-bar mode usually keeps it near 0.
-      const IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD = 12;
+      const IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD = 2;
+
+      // Final safety guard: if iPhone Safari reports a smaller visualViewport
+      // than our predicted position, lift the native input only enough so it
+      // does not intersect the keyboard / Safari bottom browser chrome.
+      const IOS_IPHONE_SAFARI_VISIBLE_BOTTOM_GAP = 10;
+      const IOS_IPHONE_SAFARI_MAX_INTERSECTION_CORRECTION = 140;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
@@ -531,6 +537,12 @@
       let lockedInputBottom = 0;
       let keyboardSessionUntil = 0;
       let lastUserGestureAt = 0;
+
+      // Safari tab-bar position must be sampled before the keyboard animation.
+      // During keyboard open, visualViewport.offsetTop can temporarily become 0,
+      // so reading it only inside getStableInputBottom() can mis-detect top mode.
+      let cachedIPhoneSafariTopTabBarMode = false;
+      let cachedIPhoneSafariTabBarModeAt = 0;
 
       function isInstalledWebApp() {
         return (
@@ -688,11 +700,67 @@
         );
       }
 
+      function getIPhoneSafariVisualViewportOffsetTop() {
+        if (!window.visualViewport) return 0;
+        return Math.round(window.visualViewport.offsetTop || 0);
+      }
+
+      function getIPhoneSafariRawKeyboardHeightFromViewport() {
+        if (!window.visualViewport) return 0;
+
+        return Math.max(
+          0,
+          Math.round(
+            (window.innerHeight || 0) -
+            window.visualViewport.height -
+            window.visualViewport.offsetTop
+          )
+        );
+      }
+
+      function sampleIPhoneSafariTabBarMode(force) {
+        if (!isIPhoneSafariLike || !window.visualViewport) return;
+
+        const offsetTop = getIPhoneSafariVisualViewportOffsetTop();
+        const rawKeyboardHeight = getIPhoneSafariRawKeyboardHeightFromViewport();
+        const hasKeyboardSession = hasTextInputSession();
+
+        // If Safari reports any meaningful top offset, cache top-tab-bar mode.
+        // This must happen before the keyboard fully opens.
+        if (offsetTop >= IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD) {
+          cachedIPhoneSafariTopTabBarMode = true;
+          cachedIPhoneSafariTabBarModeAt = Date.now();
+          return;
+        }
+
+        // Only cache bottom-tab-bar mode when the keyboard is not active.
+        // This avoids overwriting a valid top-mode cache during the keyboard animation,
+        // where iOS Safari may temporarily report offsetTop as 0.
+        if ((force || !hasKeyboardSession) && rawKeyboardHeight <= KEYBOARD_OPEN_THRESHOLD && offsetTop <= 1) {
+          cachedIPhoneSafariTopTabBarMode = false;
+          cachedIPhoneSafariTabBarModeAt = Date.now();
+        }
+      }
+
       function isIPhoneSafariTopTabBarMode() {
         if (!isIPhoneSafariLike || !window.visualViewport) return false;
 
-        return (window.visualViewport.offsetTop || 0) >
-          IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD;
+        const offsetTop = getIPhoneSafariVisualViewportOffsetTop();
+
+        if (offsetTop >= IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD) {
+          cachedIPhoneSafariTopTabBarMode = true;
+          cachedIPhoneSafariTabBarModeAt = Date.now();
+          return true;
+        }
+
+        // During active input/keyboard animation, trust the pre-keyboard sample.
+        // Do not turn top mode off just because Safari temporarily reports offsetTop = 0.
+        if (hasTextInputSession() && cachedIPhoneSafariTabBarModeAt > 0) {
+          return cachedIPhoneSafariTopTabBarMode;
+        }
+
+        sampleIPhoneSafariTabBarMode(false);
+        return cachedIPhoneSafariTopTabBarMode;
       }
 
       function getIPhoneSafariBottomTabBarKeyboardHeight() {
@@ -939,6 +1007,46 @@
         return bestButton;
       }
 
+      function correctIPhoneSafariKeyboardIntersection(input, okButton, currentBottom) {
+        if (!isIPhoneSafariLike || !window.visualViewport || !input) {
+          return currentBottom;
+        }
+
+        const rect = input.getBoundingClientRect();
+        const viewport = window.visualViewport;
+
+        // In iOS Safari, visualViewport.height represents the area still visible
+        // above the keyboard. offsetTop is included for top-address-bar mode.
+        const visibleBottom = Math.round(
+          (viewport.offsetTop || 0) + viewport.height
+        );
+
+        const maxAllowedInputBottom = visibleBottom - IOS_IPHONE_SAFARI_VISIBLE_BOTTOM_GAP;
+        const overlap = Math.ceil(rect.bottom - maxAllowedInputBottom);
+
+        if (overlap <= 0) {
+          return currentBottom;
+        }
+
+        const correction = Math.min(
+          IOS_IPHONE_SAFARI_MAX_INTERSECTION_CORRECTION,
+          overlap
+        );
+
+        const correctedBottom = Math.max(
+          INPUT_GAP,
+          currentBottom + correction
+        );
+
+        input.style.setProperty("bottom", correctedBottom + "px", "important");
+
+        if (okButton) {
+          okButton.style.setProperty("bottom", correctedBottom + "px", "important");
+        }
+
+        return correctedBottom;
+      }
+
       function applyInputStyle(input, okWidth, bottom, lift) {
         const transformValue = lift > 0
           ? "translate3d(0, -" + lift + "px, 0)"
@@ -1067,6 +1175,17 @@
         } else {
           targetInput.style.setProperty("border", INPUT_BORDER_STYLE, "important");
           targetInput.style.setProperty("border-radius", "8px", "important");
+        }
+
+        // Last-pass guard for iPhone Safari top-tab-bar mode. This does not
+        // change the predicted bottom value unless the input is actually below
+        // the visible viewport and touching/intersecting the keyboard.
+        if (!useIOSSafariTransformLift) {
+          bottom = correctIPhoneSafariKeyboardIntersection(
+            targetInput,
+            activeOkButton,
+            bottom
+          );
         }
 
         window.scrollTo(0, 0);
@@ -1203,6 +1322,8 @@
         positionNativeInputAndUnityOkButton(candidate);
       }
 
+      sampleIPhoneSafariTabBarMode(true);
+
       document.addEventListener(
         "focusin",
         function (event) {
@@ -1221,7 +1342,9 @@
         function (event) {
           lastUserGestureAt = Date.now();
 
-          if (isIPhoneSafariLike) { }
+          if (isIPhoneSafariLike) {
+            sampleIPhoneSafariTabBarMode(true);
+          }
 
           if (isTextInput(event.target)) {
             schedulePosition(event.target);
@@ -1239,7 +1362,9 @@
         function () {
           lastUserGestureAt = Date.now();
 
-          if (isIPhoneSafariLike) { }
+          if (isIPhoneSafariLike) {
+            sampleIPhoneSafariTabBarMode(true);
+          }
 
           setTimeout(scheduleByScan, 80);
           setTimeout(scheduleByScan, 250);
@@ -1293,6 +1418,10 @@
       );
 
       window.addEventListener("resize", function () {
+        if (isIPhoneSafariLike) {
+          sampleIPhoneSafariTabBarMode(false);
+        }
+
         requestAnimationFrame(updatePosition);
         setTimeout(updatePosition, 100);
         setTimeout(updatePosition, 300);
@@ -1301,12 +1430,20 @@
 
       if (window.visualViewport) {
         window.visualViewport.addEventListener("resize", function () {
+          if (isIPhoneSafariLike) {
+            sampleIPhoneSafariTabBarMode(false);
+          }
+
           requestAnimationFrame(updatePosition);
           setTimeout(scheduleByScan, 120);
           setTimeout(scheduleByScan, 420);
         });
 
         window.visualViewport.addEventListener("scroll", function () {
+          if (isIPhoneSafariLike) {
+            sampleIPhoneSafariTabBarMode(false);
+          }
+
           requestAnimationFrame(updatePosition);
           setTimeout(scheduleByScan, 120);
         });
