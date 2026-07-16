@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=8.2'
+          'ServiceWorker.js?v=8.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "8.2";
+    const BUILD_VERSION = "8.3";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/a84f65317bf05a817ccf2d02ab748db9.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/226987afdde98cf1c54def17d6e8419f.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "8.2",
+      productVersion: "8.3",
       showBanner: unityShowBanner,
     };
 
@@ -502,34 +502,30 @@
       const IOS_SAFARI_INPUT_LIFT_EXTRA = 0;
 
       // iPhone Safari / iPhone installed app:
-      // Final simplified positioning. Ratio/min/max caused confusing clamping:
-      // when MIN/MAX was active, changing RATIO or UP_EXTRA appeared to do nothing.
-      // These two values directly control the CSS bottom value used for Unity's
-      // native input on iPhone Safari.
-      // Increase = move native input UP. Decrease = move native input DOWN.
-      const IOS_IPHONE_SAFARI_BOTTOM_INPUT_BOTTOM = 150;
-      const IOS_IPHONE_SAFARI_TOP_INPUT_BOTTOM = 300;
+      // Bottom tab bar reports keyboard/visualViewport in multiple phases, so use
+      // a stable predicted keyboard height there. Top tab bar reports a larger
+      // usable keyboard overlap, so it needs its own higher stable estimate.
+      const IOS_IPHONE_SAFARI_DOWN_ADJUST = 2;
 
-      // Keep this as "auto" for production.
-      // For testing only, set to "bottom" or "top" to verify the exact value.
-      const IOS_IPHONE_SAFARI_FORCE_TABBAR_MODE = "auto";
-
-      // Auto detection hint. If top tab bar is not detected on your device,
-      // temporarily set IOS_IPHONE_SAFARI_FORCE_TABBAR_MODE = "top" and tune
-      // IOS_IPHONE_SAFARI_TOP_INPUT_BOTTOM.
-      const IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD = 2;
-
-      // Legacy constants kept only so older helper functions remain safe if called.
-      // They are no longer used for the final iPhone Safari input position.
-      const IOS_IPHONE_SAFARI_DOWN_ADJUST = 0;
+      // Bottom tab bar values.
+      // Keep these lower than the top-tab values because bottom-tab Safari already
+      // reserves extra browser chrome space above the keyboard.
       const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_MIN = 150;
       const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_MAX = 230;
       const IOS_IPHONE_SAFARI_BOTTOM_KEYBOARD_RATIO = 0.21;
-      const IOS_IPHONE_SAFARI_BOTTOM_UP_EXTRA = 0;
+      const IOS_IPHONE_SAFARI_BOTTOM_UP_EXTRA = 2;
+
+      // Top tab bar values.
+      // Top-tab Safari needs a little more bottom offset than bottom-tab Safari,
+      // but it should still be stable and should not use live keyboard height.
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_MIN = 235;
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_MAX = 330;
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_RATIO = 0.38;
-      const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 0;
+      const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 10;
+
+      // visualViewport.offsetTop is normally positive when Safari's address/tab
+      // bar is at the top. Bottom-tab-bar mode usually keeps it near 0.
+      const IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD = 30;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
@@ -790,17 +786,11 @@
           return getIPhoneSafariBottomTabBarKeyboardHeight();
         }
 
-        // Top tab bar: the keyboard overlap is larger and the live value is usually
-        // stable. Use the larger of the top estimate and the live value so the
-        // input does not intersect the keyboard.
-        const rawKeyboardHeight = getRawKeyboardHeight();
-        const topEstimate = getIPhoneSafariTopTabBarKeyboardHeight();
-
-        if (rawKeyboardHeight > KEYBOARD_OPEN_THRESHOLD) {
-          return Math.max(rawKeyboardHeight, topEstimate);
-        }
-
-        return topEstimate;
+        // Top tab bar: also use a stable predicted value.
+        // Do not mix in the live visualViewport keyboard height here; during
+        // Safari's keyboard animation that live value can over-report and push
+        // the native input too high.
+        return getIPhoneSafariTopTabBarKeyboardHeight();
       }
 
       function getAndroidMessengerFallbackKeyboardHeight() {
@@ -868,19 +858,19 @@
           controls the iPhone Safari position from the first frame.
         */
         if (isIPhoneSafariLike && hasTextInputSession()) {
-          let isTopTabBarMode = isIPhoneSafariTopTabBarMode();
+          const isTopTabBarMode = isIPhoneSafariTopTabBarMode();
+          const iphoneKeyboardHeight = getIPhoneSafariKeyboardHeightForPosition();
+          const iphoneExtraUp = isTopTabBarMode
+            ? IOS_IPHONE_SAFARI_TOP_UP_EXTRA
+            : IOS_IPHONE_SAFARI_BOTTOM_UP_EXTRA;
 
-          if (IOS_IPHONE_SAFARI_FORCE_TABBAR_MODE === "top") {
-            isTopTabBarMode = true;
-          } else if (IOS_IPHONE_SAFARI_FORCE_TABBAR_MODE === "bottom") {
-            isTopTabBarMode = false;
-          }
-
-          const iphoneBottom = isTopTabBarMode
-            ? IOS_IPHONE_SAFARI_TOP_INPUT_BOTTOM
-            : IOS_IPHONE_SAFARI_BOTTOM_INPUT_BOTTOM;
-
-          return Math.max(INPUT_GAP, iphoneBottom);
+          return Math.max(
+            INPUT_GAP,
+            iphoneKeyboardHeight
+            + INPUT_GAP
+            - IOS_IPHONE_SAFARI_DOWN_ADJUST
+            + iphoneExtraUp
+          );
         }
 
         const keyboardHeight = getEffectiveKeyboardHeight();
