@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=9.4'
+          'ServiceWorker.js?v=9.5'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "9.4";
+    const BUILD_VERSION = "9.5";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/6ce7bca8a08bf63c9ad676f06d953fc6.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/dbf511962815259ddac318e5dacf18a4.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "9.4",
+      productVersion: "9.5",
       showBanner: unityShowBanner,
     };
 
@@ -523,24 +523,18 @@
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_RATIO = 0.38;
       const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 10;
 
-      // Final fine tune only. These are applied after the ratio/min/max result.
-      // Negative = move native input DOWN. Positive = move native input UP.
-      const IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET = -50;
+      // Final fine tune only. Negative = move DOWN, Positive = move UP.
+      // Bottom tab bar: slightly lower than current working position.
+      // Top tab bar: slightly higher than current working position.
+      const IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET = -10;
       const IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET = 14;
 
-      // Use auto normally. For testing only, set to "top" or "bottom".
-      // This helps verify that the offset values are correct independently of detection.
+      // Use "auto" normally. For testing only, set "top" or "bottom".
       const IOS_IPHONE_SAFARI_FORCE_TABBAR_MODE = "auto"; // "auto", "top", "bottom"
 
       // visualViewport.offsetTop is normally positive when Safari's address/tab
-      // bar is at the top. 30px was too high on some iPhones, so top mode could
-      // remain undetected and the bottom offset would be used in both modes.
-      const IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD = 2;
-
-      // Backup detector while keyboard is visible. In bottom-tab-bar mode Safari's
-      // bottom URL bar is between the page and the keyboard, so the raw hidden area
-      // becomes larger than in top-tab-bar mode. Tune only if auto mode is still wrong.
-      const IOS_IPHONE_SAFARI_BOTTOM_RAW_KEYBOARD_THRESHOLD = 380;
+      // bar is at the top. Bottom-tab-bar mode usually keeps it near 0.
+      const IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD = 30;
 
       const KEYBOARD_OPEN_THRESHOLD = 80;
 
@@ -747,28 +741,20 @@
 
         const offsetTop = getIPhoneSafariVisualViewportOffsetTop();
         const rawKeyboardHeight = getIPhoneSafariRawKeyboardHeightFromViewport();
-        const keyboardLooksOpen = rawKeyboardHeight > KEYBOARD_OPEN_THRESHOLD;
+        const hasKeyboardSession = hasTextInputSession();
 
-        // 1) Best pre-keyboard signal:
-        // Top-tab-bar Safari usually reports a positive visualViewport.offsetTop.
+        // If Safari reports any meaningful top offset, cache top-tab-bar mode.
+        // This must happen before the keyboard fully opens.
         if (offsetTop >= IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD) {
           cachedIPhoneSafariTopTabBarMode = true;
           cachedIPhoneSafariTabBarModeAt = Date.now();
           return;
         }
 
-        // 2) Best keyboard-open signal:
-        // Bottom-tab-bar Safari has the bottom URL/tab bar sitting above the
-        // keyboard, so the raw hidden area is usually larger.
-        if (keyboardLooksOpen) {
-          cachedIPhoneSafariTopTabBarMode =
-            rawKeyboardHeight < IOS_IPHONE_SAFARI_BOTTOM_RAW_KEYBOARD_THRESHOLD;
-          cachedIPhoneSafariTabBarModeAt = Date.now();
-          return;
-        }
-
-        // 3) Safe closed-keyboard fallback.
-        if (force || cachedIPhoneSafariTabBarModeAt <= 0) {
+        // Only cache bottom-tab-bar mode when the keyboard is not active.
+        // This avoids overwriting a valid top-mode cache during the keyboard animation,
+        // where iOS Safari may temporarily report offsetTop as 0.
+        if ((force || !hasKeyboardSession) && rawKeyboardHeight <= KEYBOARD_OPEN_THRESHOLD && offsetTop <= 1) {
           cachedIPhoneSafariTopTabBarMode = false;
           cachedIPhoneSafariTabBarModeAt = Date.now();
         }
@@ -781,20 +767,16 @@
         if (forced !== null) return forced;
 
         const offsetTop = getIPhoneSafariVisualViewportOffsetTop();
-        const rawKeyboardHeight = getIPhoneSafariRawKeyboardHeightFromViewport();
 
-        // Do not rely on only one signal. Safari can report offsetTop = 0 during
-        // keyboard animation even when the tab/address bar is at the top.
         if (offsetTop >= IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD) {
           cachedIPhoneSafariTopTabBarMode = true;
           cachedIPhoneSafariTabBarModeAt = Date.now();
           return true;
         }
 
-        if (rawKeyboardHeight > KEYBOARD_OPEN_THRESHOLD) {
-          cachedIPhoneSafariTopTabBarMode =
-            rawKeyboardHeight < IOS_IPHONE_SAFARI_BOTTOM_RAW_KEYBOARD_THRESHOLD;
-          cachedIPhoneSafariTabBarModeAt = Date.now();
+        // During active input/keyboard animation, trust the pre-keyboard sample.
+        // Do not turn top mode off just because Safari temporarily reports offsetTop = 0.
+        if (hasTextInputSession() && cachedIPhoneSafariTabBarModeAt > 0) {
           return cachedIPhoneSafariTopTabBarMode;
         }
 
