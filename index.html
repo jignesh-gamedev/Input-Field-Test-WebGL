@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=6.6'
+          'ServiceWorker.js?v=6.7'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "6.6";
+    const BUILD_VERSION = "6.7";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/3d6961cbce5f0834d770485dbda23e6a.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/97104a786152c9d2a892bc44a9e58cd1.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "6.6",
+      productVersion: "6.7",
       showBanner: unityShowBanner,
     };
 
@@ -744,6 +744,11 @@
           lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD ||
           hasTextInputSession();
 
+        const candidateBottom = Math.max(
+          INPUT_GAP,
+          keyboardHeight + INPUT_GAP + extraLift
+        );
+
         if (isIPhoneSafariLike && keyboardLooksOpen) {
           const iphoneBottom = Math.max(
             INPUT_GAP,
@@ -755,10 +760,6 @@
           return iphoneBottom;
         }
 
-        const candidateBottom = Math.max(
-          INPUT_GAP,
-          keyboardHeight + INPUT_GAP + extraLift
-        );
 
         if (keyboardLooksOpen) {
           lockedInputBottom = Math.max(
