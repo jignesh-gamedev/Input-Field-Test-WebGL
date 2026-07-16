@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=8.3'
+          'ServiceWorker.js?v=8.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "8.3";
+    const BUILD_VERSION = "8.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/483338b4efd86fe9214a61d91aa6502b.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/226987afdde98cf1c54def17d6e8419f.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/7293db43428143dfc5b930f90b1a61d7.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/ef7006e684cd0e54cf4e52304ace64f9.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "8.3",
+      productVersion: "8.4",
       showBanner: unityShowBanner,
     };
 
@@ -523,6 +523,14 @@
       const IOS_IPHONE_SAFARI_TOP_KEYBOARD_RATIO = 0.38;
       const IOS_IPHONE_SAFARI_TOP_UP_EXTRA = 10;
 
+      // Final fine-tuning offsets for iPhone Safari only.
+      // Negative value moves the native input DOWN.
+      // Positive value moves the native input UP.
+      // Bottom tab bar is slightly high, so move it down a little.
+      // Top tab bar intersects with keyboard, so move it up a little.
+      const IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET = -10;
+      const IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET = 14;
+
       // visualViewport.offsetTop is normally positive when Safari's address/tab
       // bar is at the top. Bottom-tab-bar mode usually keeps it near 0.
       const IOS_IPHONE_SAFARI_TOP_TABBAR_OFFSET_THRESHOLD = 30;
@@ -864,12 +872,17 @@
             ? IOS_IPHONE_SAFARI_TOP_UP_EXTRA
             : IOS_IPHONE_SAFARI_BOTTOM_UP_EXTRA;
 
+          const iphoneFinalOffset = isTopTabBarMode
+            ? IOS_IPHONE_SAFARI_TOP_FINAL_OFFSET
+            : IOS_IPHONE_SAFARI_BOTTOM_FINAL_OFFSET;
+
           return Math.max(
             INPUT_GAP,
             iphoneKeyboardHeight
             + INPUT_GAP
             - IOS_IPHONE_SAFARI_DOWN_ADJUST
             + iphoneExtraUp
+            + iphoneFinalOffset
           );
         }
 
