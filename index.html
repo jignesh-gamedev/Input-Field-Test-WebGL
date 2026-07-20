@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=9.9'
+          'ServiceWorker.js?v=10.0'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "9.9";
+    const BUILD_VERSION = "10.0";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/3bc06c2af67aa2ffbd4b3a6cd663669c.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/19c7dd17e0435397166e6e6ee0e5e9cc.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/e20ff24a62e02211482858c72c3c4de6.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/9f22694768cac7dc6e596feadbcaf981.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/814e10abaf3674d92b46a970713238d3.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/3d7dd0bb8ff4fb62545d712792314563.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/08495d7ad73a679cff9f8c99d856ac52.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "9.9",
+      productVersion: "10.0",
       showBanner: unityShowBanner,
     };
 
@@ -534,7 +534,11 @@
 
       function isTextInput(el) {
         if (!el) return false;
-        if (el.hasAttribute && el.hasAttribute("data-unity-credential-helper")) return false;
+        if (
+          el.hasAttribute &&
+          el.hasAttribute("data-unity-credential-helper") &&
+          el !== document.activeElement
+        ) return false;
 
         const tag = el.tagName ? el.tagName.toLowerCase() : "";
         if (tag !== "input" && tag !== "textarea") return false;
@@ -880,6 +884,8 @@
 
         input.style.setProperty("background", "#ffffff", "important");
         input.style.setProperty("color", "#000000", "important");
+        input.style.setProperty("-webkit-text-fill-color", "#000000", "important");
+        input.style.setProperty("caret-color", "#000000", "important");
         input.style.setProperty("outline", "none", "important");
         input.style.setProperty("transform", transformValue, "important");
         input.style.setProperty("-webkit-transform", transformValue, "important");
@@ -1640,6 +1646,26 @@
         username.addEventListener("change", syncLoginValuesToUnity);
         password.addEventListener("input", syncLoginValuesToUnity);
         password.addEventListener("change", syncLoginValuesToUnity);
+
+        function restoreOverlayStyleAfterBlur(input) {
+          setTimeout(function () {
+            if (document.activeElement === input) return;
+
+            // The Android keyboard-positioning script temporarily turns the
+            // active credential input into the visible preview above the
+            // keyboard. Restore its transparent field overlay after focus ends.
+            input.style.cssText = transparentInputStyle;
+            applyLoginFormLayout();
+          }, 0);
+        }
+
+        username.addEventListener("blur", function () {
+          restoreOverlayStyleAfterBlur(username);
+        });
+
+        password.addEventListener("blur", function () {
+          restoreOverlayStyleAfterBlur(password);
+        });
 
         username.addEventListener("keydown", function (event) {
           if (event.key !== "Enter") return;
