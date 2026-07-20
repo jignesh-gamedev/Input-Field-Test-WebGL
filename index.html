@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=10.0'
+          'ServiceWorker.js?v=10.1'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "10.0";
+    const BUILD_VERSION = "10.1";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/19c7dd17e0435397166e6e6ee0e5e9cc.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/8908b537b769139f62801a8486d87980.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/9f22694768cac7dc6e596feadbcaf981.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/8015fda010a6b878b935185f20c4f06e.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/814e10abaf3674d92b46a970713238d3.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/191e48bfc4d04374942e33ca8ff34fd8.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/08495d7ad73a679cff9f8c99d856ac52.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/72124a2a8636d80873b0753a433089ac.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "10.0",
+      productVersion: "10.1",
       showBanner: unityShowBanner,
     };
 
@@ -1557,7 +1557,9 @@
       const FORM_ID = "unity-webgl-credential-form";
       const USERNAME_ID = "username";
       const PASSWORD_ID = "current-password";
+      const CREDENTIAL_ATTEMPT_TIMEOUT_MS = 12000;
       let pollTimer = null;
+      let attemptTimer = null;
       let loginState = null;
 
       function isIOSBrowser() {
@@ -1633,7 +1635,9 @@
           "box-sizing:border-box;opacity:0.01;pointer-events:auto;touch-action:auto;";
 
         username.style.cssText = transparentInputStyle;
-        password.style.cssText = transparentInputStyle;
+        // The password control must exist for Chrome to recognize a login form,
+        // but only the username helper may intercept a pointer interaction.
+        password.style.cssText = transparentInputStyle + "pointer-events:none;";
         submit.style.cssText =
           "position:fixed;left:-10000px;top:0;width:1px;height:1px;" +
           "margin:0;padding:0;border:0;opacity:0;pointer-events:none;";
@@ -1642,35 +1646,36 @@
           event.preventDefault();
         });
 
-        username.addEventListener("input", syncLoginValuesToUnity);
-        username.addEventListener("change", syncLoginValuesToUnity);
-        password.addEventListener("input", syncLoginValuesToUnity);
-        password.addEventListener("change", syncLoginValuesToUnity);
+        username.addEventListener("input", function () {
+          tryCompleteCredentialAttempt(true);
+        });
+        username.addEventListener("change", function () {
+          tryCompleteCredentialAttempt(true);
+        });
+        password.addEventListener("input", function () {
+          tryCompleteCredentialAttempt(true);
+        });
+        password.addEventListener("change", function () {
+          tryCompleteCredentialAttempt(true);
+        });
 
-        function restoreOverlayStyleAfterBlur(input) {
+        username.addEventListener("focus", function () {
+          if (!loginState) return;
+
+          loginState.focusCount += 1;
+          if (loginState.focusCount < 2) return;
+
+          // Some Chrome variants refocus the field when their credential UI is
+          // dismissed. If it returned without filling a password, discard this
+          // one-shot helper instead of leaving it over the TMP input.
           setTimeout(function () {
-            if (document.activeElement === input) return;
+            if (!loginState) return;
 
-            // The Android keyboard-positioning script temporarily turns the
-            // active credential input into the visible preview above the
-            // keyboard. Restore its transparent field overlay after focus ends.
-            input.style.cssText = transparentInputStyle;
-            applyLoginFormLayout();
+            const currentPassword = document.getElementById(PASSWORD_ID);
+            if (!currentPassword || !currentPassword.value) {
+              cancelCredentialAttempt("dismissed");
+            }
           }, 0);
-        }
-
-        username.addEventListener("blur", function () {
-          restoreOverlayStyleAfterBlur(username);
-        });
-
-        password.addEventListener("blur", function () {
-          restoreOverlayStyleAfterBlur(password);
-        });
-
-        username.addEventListener("keydown", function (event) {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-          password.focus();
         });
 
         form.appendChild(username);
@@ -1698,27 +1703,55 @@
         return true;
       }
 
-      function syncLoginValuesToUnity() {
+      function cancelCredentialAttempt(reason) {
+        if (!loginState) return;
+
+        const cancelledState = loginState;
+        removeLoginForm();
+
+        if (
+          window.unityInstance &&
+          cancelledState.gameObjectName &&
+          cancelledState.closedCallbackMethodName
+        ) {
+          window.unityInstance.SendMessage(
+            cancelledState.gameObjectName,
+            cancelledState.closedCallbackMethodName,
+            reason || "dismissed"
+          );
+        }
+      }
+
+      function tryCompleteCredentialAttempt(valueEventSeen) {
         if (!loginState) return;
 
         const usernameInput = document.getElementById(USERNAME_ID);
         const passwordInput = document.getElementById(PASSWORD_ID);
+        if (!usernameInput || !passwordInput) return;
+
         const username = usernameInput.value;
         const password = passwordInput.value;
+        const valuesChanged =
+          username !== loginState.initialUsername ||
+          password !== loginState.initialPassword;
 
-        if (username === loginState.lastUsername && password === loginState.lastPassword) {
-          return;
-        }
+        // A saved-password selection fills the password field. Input/change
+        // events cover normal Chrome autofill; the value comparison covers
+        // Chrome paths that mutate the controls without dispatching events.
+        if (!username || !password || (!valueEventSeen && !valuesChanged)) return;
 
-        if (!sendCredentialToUnity(
-          loginState.gameObjectName,
-          loginState.callbackMethodName,
+        const completedState = loginState;
+
+        // Remove the helper before notifying Unity so it cannot steal focus or
+        // keyboard events while TMP refreshes its visible fields.
+        removeLoginForm();
+
+        sendCredentialToUnity(
+          completedState.gameObjectName,
+          completedState.callbackMethodName,
           username,
           password
-        )) return;
-
-        loginState.lastUsername = username;
-        loginState.lastPassword = password;
+        );
       }
 
       function setInputBounds(input, bounds) {
@@ -1747,42 +1780,64 @@
       }
 
       function configureLoginForm(options) {
+        // Each username selection is a new, one-shot browser credential attempt.
+        removeLoginForm();
+
         const form = ensureCredentialForm();
         const usernameInput = document.getElementById(USERNAME_ID);
         const passwordInput = document.getElementById(PASSWORD_ID);
-        const previousState = loginState;
-        const isNewForm = !previousState;
 
         loginState = {
           gameObjectName: options.gameObjectName,
           callbackMethodName: options.callbackMethodName,
+          closedCallbackMethodName: options.closedCallbackMethodName,
           usernameBounds: options.usernameBounds,
           passwordBounds: options.passwordBounds,
-          lastUsername: previousState ? previousState.lastUsername : usernameInput.value,
-          lastPassword: previousState ? previousState.lastPassword : passwordInput.value
+          initialUsername: options.username || "",
+          initialPassword: options.password || "",
+          openedAt: Date.now(),
+          focusCount: 0
         };
 
-        if (isNewForm) {
-          usernameInput.value = options.username || "";
-          passwordInput.value = options.password || "";
-          loginState.lastUsername = usernameInput.value;
-          loginState.lastPassword = passwordInput.value;
-        }
+        usernameInput.value = loginState.initialUsername;
+        passwordInput.value = loginState.initialPassword;
 
         form.style.display = "block";
         applyLoginFormLayout();
 
-        if (!pollTimer) {
-          // Chrome does not consistently dispatch input/change events for every
-          // autofill path, so also observe values while the form is active.
-          pollTimer = setInterval(syncLoginValuesToUnity, 100);
+        // Chrome does not consistently dispatch input/change events for every
+        // autofill path, so also observe values while this attempt is active.
+        pollTimer = setInterval(function () {
+          tryCompleteCredentialAttempt(false);
+        }, 100);
+
+        // Browsers do not expose whether their password sheet has no entries or
+        // was dismissed. This bounded fallback guarantees that the helper cannot
+        // remain in the DOM and interfere with normal TMP editing.
+        attemptTimer = setTimeout(function () {
+          cancelCredentialAttempt("timeout");
+        }, CREDENTIAL_ATTEMPT_TIMEOUT_MS);
+
+        // ConfigureLoginForm is invoked from TMP's username selection. Focus and
+        // click the newly-created real input while that interaction is active so
+        // Chrome can open its native saved-password UI.
+        try {
+          usernameInput.focus({ preventScroll: true });
+        } catch (_) {
+          usernameInput.focus();
         }
+        usernameInput.click();
       }
 
       function removeLoginForm() {
         if (pollTimer) {
           clearInterval(pollTimer);
           pollTimer = null;
+        }
+
+        if (attemptTimer) {
+          clearTimeout(attemptTimer);
+          attemptTimer = null;
         }
 
         loginState = null;
@@ -1820,6 +1875,26 @@
       };
 
       window.addEventListener("resize", applyLoginFormLayout);
+
+      // Clicking anywhere other than the temporary credential controls dismisses
+      // the current attempt. The opening pointer event is ignored because the
+      // form is created while Unity is processing that same selection.
+      document.addEventListener("pointerdown", function (event) {
+        if (!loginState || Date.now() - loginState.openedAt < 250) return;
+
+        const form = document.getElementById(FORM_ID);
+        if (!form || !form.contains(event.target)) {
+          cancelCredentialAttempt("outside-pointer");
+        }
+      }, true);
+
+      document.addEventListener("keydown", function (event) {
+        if (loginState && event.key === "Escape") {
+          cancelCredentialAttempt("escape");
+        }
+      }, true);
+
+      window.addEventListener("pagehide", removeLoginForm);
 
       if (window.visualViewport) {
         window.visualViewport.addEventListener("resize", applyLoginFormLayout);
