@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=9.8'
+          'ServiceWorker.js?v=9.9'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "9.8";
+    const BUILD_VERSION = "9.9";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/04ace2c9217d3805603834095aea908f.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/3bc06c2af67aa2ffbd4b3a6cd663669c.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/2ff637da683ba7240c1a21ec468f82b5.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/e20ff24a62e02211482858c72c3c4de6.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/47339853fb597f8a3cd5755361c93f4c.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/814e10abaf3674d92b46a970713238d3.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/77e3d5ac3fe5c6f531d2c2eee96877ac.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/3d7dd0bb8ff4fb62545d712792314563.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "9.8",
+      productVersion: "9.9",
       showBanner: unityShowBanner,
     };
 
@@ -1542,18 +1542,17 @@
     /*
       Google Password Manager autofill bridge for Unity WebGL.
 
-      navigator.credentials.get({ password: true }) deliberately opens Chrome's
-      account chooser ("Sign in as"). To use Chrome's normal saved-password UI,
-      expose a real login form and focus its username field from the Unity tap.
+      Chrome only opens its normal autofill UI from a trusted interaction with a
+      real form control. The transparent HTML inputs are positioned directly over
+      the matching Unity fields, so the user's tap reaches Chrome's form control
+      instead of requiring a synthetic focus after the canvas click.
     */
     (function () {
       const FORM_ID = "unity-webgl-credential-form";
+      const USERNAME_ID = "username";
       const PASSWORD_ID = "current-password";
-      const REQUEST_TIMEOUT_MS = 30000;
-
-      let pendingRequest = null;
       let pollTimer = null;
-      let requestTimeout = null;
+      let loginState = null;
 
       function isIOSBrowser() {
         return (
@@ -1564,7 +1563,8 @@
 
       function createNoopCredentialBridge() {
         window.UnityCredentialAutofill = {
-          requestSavedCredentials: function () { },
+          configureLoginForm: function () { },
+          removeLoginForm: function () { },
           saveCredentials: function () { }
         };
       }
@@ -1575,36 +1575,6 @@
       if (isIOSBrowser()) {
         createNoopCredentialBridge();
         return;
-      }
-
-      function isTextInput(el) {
-        if (!el || !el.tagName) return false;
-        if (el.hasAttribute("data-unity-credential-helper")) return false;
-
-        const tag = el.tagName.toLowerCase();
-        if (tag !== "input" && tag !== "textarea") return false;
-
-        const type = (el.getAttribute("type") || "").toLowerCase();
-
-        return !(
-          type === "hidden" ||
-          type === "checkbox" ||
-          type === "radio" ||
-          type === "file" ||
-          type === "submit" ||
-          type === "button"
-        );
-      }
-
-      function isVisibleInputCandidate(el) {
-        if (!isTextInput(el)) return false;
-        if (!document.body.contains(el)) return false;
-
-        const style = window.getComputedStyle(el);
-        if (style.display === "none" || style.visibility === "hidden") return false;
-
-        const rect = el.getBoundingClientRect();
-        return rect.width > 20 && rect.height > 10;
       }
 
       function ensureCredentialForm() {
@@ -1618,8 +1588,22 @@
         form.action = window.location.href.split("#")[0];
         form.autocomplete = "on";
         form.style.cssText =
-          "position:fixed;left:-10000px;top:0;width:320px;height:100px;" +
-          "z-index:2147483645;pointer-events:none;";
+          "position:fixed;inset:0;width:100vw;height:100vh;margin:0;padding:0;" +
+          "z-index:2147483645;pointer-events:none;overflow:visible;";
+
+        const username = document.createElement("input");
+        username.id = USERNAME_ID;
+        username.name = "username";
+        username.type = "text";
+        username.autocomplete = "username";
+        username.required = true;
+        username.inputMode = "email";
+        username.enterKeyHint = "next";
+        username.setAttribute("autocapitalize", "none");
+        username.setAttribute("autocorrect", "off");
+        username.setAttribute("spellcheck", "false");
+        username.setAttribute("aria-label", "Username");
+        username.setAttribute("data-unity-credential-helper", "username");
 
         const password = document.createElement("input");
         password.id = PASSWORD_ID;
@@ -1627,6 +1611,7 @@
         password.type = "password";
         password.autocomplete = "current-password";
         password.required = true;
+        password.enterKeyHint = "done";
         password.setAttribute("aria-label", "Password");
         password.setAttribute("data-unity-credential-helper", "current-password");
 
@@ -1636,23 +1621,33 @@
         submit.tabIndex = -1;
 
         const transparentInputStyle =
-          "position:absolute;left:0;top:0;width:100%;height:42px;margin:0;padding:0;" +
-          "border:0;outline:0;background:transparent;color:transparent;" +
-          "caret-color:transparent;-webkit-text-fill-color:transparent;" +
-          "font-size:16px;box-sizing:border-box;pointer-events:none;";
+          "position:fixed;margin:0;padding:0;border:0;outline:0;" +
+          "background:transparent;color:transparent;caret-color:transparent;" +
+          "-webkit-text-fill-color:transparent;font-size:16px;line-height:normal;" +
+          "box-sizing:border-box;opacity:0.01;pointer-events:auto;touch-action:auto;";
 
+        username.style.cssText = transparentInputStyle;
         password.style.cssText = transparentInputStyle;
         submit.style.cssText =
-          "position:absolute;left:0;top:44px;width:1px;height:1px;" +
+          "position:fixed;left:-10000px;top:0;width:1px;height:1px;" +
           "margin:0;padding:0;border:0;opacity:0;pointer-events:none;";
 
         form.addEventListener("submit", function (event) {
           event.preventDefault();
         });
 
-        password.addEventListener("input", deliverAutofilledCredential);
-        password.addEventListener("change", deliverAutofilledCredential);
+        username.addEventListener("input", syncLoginValuesToUnity);
+        username.addEventListener("change", syncLoginValuesToUnity);
+        password.addEventListener("input", syncLoginValuesToUnity);
+        password.addEventListener("change", syncLoginValuesToUnity);
 
+        username.addEventListener("keydown", function (event) {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          password.focus();
+        });
+
+        form.appendChild(username);
         form.appendChild(password);
         form.appendChild(submit);
 
@@ -1660,87 +1655,8 @@
         return form;
       }
 
-      function getActiveNativeInput() {
-        if (isVisibleInputCandidate(document.activeElement)) {
-          return document.activeElement;
-        }
-
-        const inputs = Array.from(document.querySelectorAll("input, textarea"))
-          .filter(isVisibleInputCandidate);
-
-        if (inputs.length <= 0) return null;
-
-        // Unity usually appends/rebuilds the active mobile input last.
-        return inputs[inputs.length - 1];
-      }
-
-      function positionCredentialForm(form, nativeInput) {
-        const rect = nativeInput.getBoundingClientRect();
-        const left = Math.max(0, Math.round(rect.left));
-        const top = Math.max(0, Math.round(rect.bottom + 8));
-        const width = Math.max(120, Math.round(rect.width));
-        const height = Math.max(36, Math.round(rect.height));
-
-        form.style.left = left + "px";
-        form.style.top = top + "px";
-        form.style.width = width + "px";
-        form.style.height = height + "px";
-
-        const password = document.getElementById(PASSWORD_ID);
-        password.style.height = height + "px";
-      }
-
-      function prepareNativeUsernameInput(input) {
-        if (!isTextInput(input)) return false;
-
-        const form = ensureCredentialForm();
-
-        // Keep the real Unity-created username input as the focused control. The
-        // companion password control completes the semantic login form so Chrome
-        // can offer its standard Google Password Manager autofill surface.
-        try {
-          input.type = "text";
-        } catch (e) {
-          input.setAttribute("type", "text");
-        }
-
-        input.id = "username";
-        input.name = "username";
-        input.required = true;
-        input.setAttribute("form", FORM_ID);
-        input.setAttribute("autocomplete", "username");
-        input.setAttribute("inputmode", "email");
-        input.setAttribute("autocapitalize", "none");
-        input.setAttribute("autocorrect", "off");
-        input.setAttribute("spellcheck", "false");
-        input.setAttribute("aria-label", "Username");
-
-        try {
-          input.enterKeyHint = "next";
-        } catch (e) { }
-
-        input.addEventListener("input", deliverAutofilledCredential);
-        input.addEventListener("change", deliverAutofilledCredential);
-
-        // Moving the form after Unity's dynamically-created input preserves the
-        // conventional username-then-password document order used by autofill.
-        document.body.appendChild(form);
-        positionCredentialForm(form, input);
-        form.style.visibility = "visible";
-
-        pendingRequest.nativeUsernameInput = input;
-
-        try {
-          input.focus({ preventScroll: true });
-        } catch (e) {
-          input.focus();
-        }
-
-        return true;
-      }
-
       function sendCredentialToUnity(gameObjectName, callbackMethodName, username, password) {
-        if (!window.unityInstance || !gameObjectName || !callbackMethodName) return;
+        if (!window.unityInstance || !gameObjectName || !callbackMethodName) return false;
 
         const payload = JSON.stringify({
           username: username || "",
@@ -1752,99 +1668,106 @@
           callbackMethodName,
           payload
         );
+
+        return true;
       }
 
-      function clearPendingRequest() {
+      function syncLoginValuesToUnity() {
+        if (!loginState) return;
+
+        const usernameInput = document.getElementById(USERNAME_ID);
+        const passwordInput = document.getElementById(PASSWORD_ID);
+        const username = usernameInput.value;
+        const password = passwordInput.value;
+
+        if (username === loginState.lastUsername && password === loginState.lastPassword) {
+          return;
+        }
+
+        if (!sendCredentialToUnity(
+          loginState.gameObjectName,
+          loginState.callbackMethodName,
+          username,
+          password
+        )) return;
+
+        loginState.lastUsername = username;
+        loginState.lastPassword = password;
+      }
+
+      function setInputBounds(input, bounds) {
+        const canvas = document.getElementById("unity-canvas");
+        if (!canvas || !bounds) return;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        input.style.left = Math.round(canvasRect.left + bounds.left * canvasRect.width) + "px";
+        input.style.top = Math.round(canvasRect.top + bounds.top * canvasRect.height) + "px";
+        input.style.width = Math.max(1, Math.round(bounds.width * canvasRect.width)) + "px";
+        input.style.height = Math.max(1, Math.round(bounds.height * canvasRect.height)) + "px";
+      }
+
+      function applyLoginFormLayout() {
+        if (!loginState) return;
+
+        setInputBounds(
+          document.getElementById(USERNAME_ID),
+          loginState.usernameBounds
+        );
+
+        setInputBounds(
+          document.getElementById(PASSWORD_ID),
+          loginState.passwordBounds
+        );
+      }
+
+      function configureLoginForm(options) {
+        const form = ensureCredentialForm();
+        const usernameInput = document.getElementById(USERNAME_ID);
+        const passwordInput = document.getElementById(PASSWORD_ID);
+        const previousState = loginState;
+        const isNewForm = !previousState;
+
+        loginState = {
+          gameObjectName: options.gameObjectName,
+          callbackMethodName: options.callbackMethodName,
+          usernameBounds: options.usernameBounds,
+          passwordBounds: options.passwordBounds,
+          lastUsername: previousState ? previousState.lastUsername : usernameInput.value,
+          lastPassword: previousState ? previousState.lastPassword : passwordInput.value
+        };
+
+        if (isNewForm) {
+          usernameInput.value = options.username || "";
+          passwordInput.value = options.password || "";
+          loginState.lastUsername = usernameInput.value;
+          loginState.lastPassword = passwordInput.value;
+        }
+
+        form.style.display = "block";
+        applyLoginFormLayout();
+
+        if (!pollTimer) {
+          // Chrome does not consistently dispatch input/change events for every
+          // autofill path, so also observe values while the form is active.
+          pollTimer = setInterval(syncLoginValuesToUnity, 100);
+        }
+      }
+
+      function removeLoginForm() {
         if (pollTimer) {
           clearInterval(pollTimer);
           pollTimer = null;
         }
 
-        if (requestTimeout) {
-          clearTimeout(requestTimeout);
-          requestTimeout = null;
-        }
+        loginState = null;
 
-        pendingRequest = null;
-      }
-
-      function hideCredentialForm() {
         const form = document.getElementById(FORM_ID);
-        if (!form) return;
-
-        const password = document.getElementById(PASSWORD_ID);
-
-        form.style.left = "-10000px";
-        password.value = "";
-      }
-
-      function deliverAutofilledCredential() {
-        if (!pendingRequest) return;
-
-        const usernameInput = pendingRequest.nativeUsernameInput;
-        const passwordInput = document.getElementById(PASSWORD_ID);
-        if (!usernameInput || !document.body.contains(usernameInput)) return;
-
-        const username = usernameInput.value.trim();
-        const password = passwordInput.value;
-
-        // Chrome may fill the two fields a few milliseconds apart.
-        if (!username || !password) return;
-
-        const request = pendingRequest;
-        clearPendingRequest();
-
-        sendCredentialToUnity(
-          request.gameObjectName,
-          request.callbackMethodName,
-          username,
-          password
-        );
-
-        hideCredentialForm();
-      }
-
-      function showPasswordManager(gameObjectName, callbackMethodName) {
-        const form = ensureCredentialForm();
-        const password = document.getElementById(PASSWORD_ID);
-
-        clearPendingRequest();
-        password.value = "";
-
-        pendingRequest = {
-          gameObjectName: gameObjectName,
-          callbackMethodName: callbackMethodName
-        };
-
-        const activate = function () {
-          if (!pendingRequest || pendingRequest.nativeUsernameInput) return;
-          prepareNativeUsernameInput(getActiveNativeInput());
-        };
-
-        // This call originates from the user's tap on the Unity username field.
-        // Chrome owns the resulting saved-password sheet and may choose a compact
-        // suggestion UI depending on its version and device settings.
-        activate();
-
-        pollTimer = setInterval(deliverAutofilledCredential, 100);
-        requestTimeout = setTimeout(function () {
-          clearPendingRequest();
-          hideCredentialForm();
-        }, REQUEST_TIMEOUT_MS);
-
-        // Unity can create its native input just after the C# selection callback.
-        // Retry briefly, but activate only once for this request.
-        requestAnimationFrame(activate);
-        setTimeout(activate, 30);
-        setTimeout(activate, 80);
-        setTimeout(activate, 150);
-        setTimeout(activate, 300);
+        if (form) form.remove();
       }
 
       window.UnityCredentialAutofill = {
-        requestSavedCredentials: function (gameObjectName, callbackMethodName) {
-          showPasswordManager(gameObjectName, callbackMethodName);
-        },
+        configureLoginForm: configureLoginForm,
+        removeLoginForm: removeLoginForm,
 
         saveCredentials: async function (username, password) {
           username = (username || "").trim();
@@ -1870,9 +1793,12 @@
         }
       };
 
-      // Create stable form controls before the first user interaction so Chrome
-      // can classify this page as a login form.
-      ensureCredentialForm();
+      window.addEventListener("resize", applyLoginFormLayout);
+
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", applyLoginFormLayout);
+        window.visualViewport.addEventListener("scroll", applyLoginFormLayout);
+      }
     })();
   </script>
 
