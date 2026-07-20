@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=9.7'
+          'ServiceWorker.js?v=9.8'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "9.7";
+    const BUILD_VERSION = "9.8";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/04ace2c9217d3805603834095aea908f.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/48fa7306ec78f347b0b543bbf7b6d0b5.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/2ff637da683ba7240c1a21ec468f82b5.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/47339853fb597f8a3cd5755361c93f4c.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "9.7",
+      productVersion: "9.8",
       showBanner: unityShowBanner,
     };
 
