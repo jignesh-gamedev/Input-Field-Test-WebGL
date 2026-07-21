@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=10.8'
+          'ServiceWorker.js?v=10.9'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "10.8";
+    const BUILD_VERSION = "10.9";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/e62b3d7651523e5677a240fec849fb17.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/3125f02e23c5b8f27e2988d3d4bb3059.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/713ceaeb72a51249aa3be1ae86bb7e3b.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/a50ddd767ab711cf2dec3a16f5781a62.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/34ca289942d6ee362de2336d0bdf2ad7.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/c16754f960b70734a5fdaa6f3d70527c.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/b3dd5e4f4c4c37b3387491e71ee6d684.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "10.8",
+      productVersion: "10.9",
       showBanner: unityShowBanner,
     };
 
@@ -1560,6 +1560,7 @@
       const AUTOFILL_SETTLE_MS = 250;
       const EAGER_AUTOFILL_GUARD_MS = 400;
       const CREDENTIAL_UI_RETURN_SETTLE_MS = 500;
+      const CREDENTIAL_UI_FOCUS_ARM_MS = 600;
       let pollTimer = null;
       let attemptTimer = null;
       let credentialUiReturnTimer = null;
@@ -1885,8 +1886,15 @@
         if (
           !isAndroidBrowser() ||
           !loginState ||
-          loginState.handoffPending ||
-          !loginState.credentialUiInteractionSeen
+          loginState.handoffPending
+        ) return;
+
+        // Ignore only the helper/TMP focus churn caused by the opening tap. A
+        // Password Manager sheet may take page focus without dispatching another
+        // pointer event to the helper, so pointer interaction cannot be required.
+        if (
+          !loginState.credentialUiInteractionSeen &&
+          Date.now() - loginState.openedAt < CREDENTIAL_UI_FOCUS_ARM_MS
         ) return;
 
         loginState.helperBlurredForCredentialUi = true;
@@ -1897,7 +1905,6 @@
           !isAndroidBrowser() ||
           !loginState ||
           loginState.handoffPending ||
-          !loginState.credentialUiInteractionSeen ||
           !loginState.helperBlurredForCredentialUi
         ) return;
 
@@ -1919,6 +1926,22 @@
             caretPosition: returnState.originalUsername.length
           });
         }, CREDENTIAL_UI_RETURN_SETTLE_MS);
+      }
+
+      function observeCredentialUiPageFocus() {
+        if (
+          !isAndroidBrowser() ||
+          !loginState ||
+          loginState.handoffPending ||
+          typeof document.hasFocus !== "function"
+        ) return;
+
+        if (!document.hasFocus()) {
+          loginState.pageFocusWasLost = true;
+          markCredentialUiFocusLost();
+        } else if (loginState.pageFocusWasLost) {
+          scheduleReturnToTmpAfterCredentialUi();
+        }
       }
 
       function cancelCredentialAttempt(reason) {
@@ -2090,7 +2113,8 @@
           originalUsername: loginConfig.username || "",
           tmpNativeInput: lastTmpNativeInput,
           credentialUiInteractionSeen: false,
-          helperBlurredForCredentialUi: false
+          helperBlurredForCredentialUi: false,
+          pageFocusWasLost: false
         };
 
         form.style.display = "block";
@@ -2098,6 +2122,7 @@
 
         pollTimer = setInterval(function () {
           observeCredentialValues(false);
+          observeCredentialUiPageFocus();
         }, 50);
 
         // Desktop keeps the safety timeout. On Android the helper must remain
