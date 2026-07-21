@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.0'
+          'ServiceWorker.js?v=11.1'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.0";
+    const BUILD_VERSION = "11.1";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/bcfb304580e94a6fa4f152ad900e164c.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/8a048bb45cc437e23dee867b0c4b9b6f.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/11a10999ad2c53927c5170d4b190ed8f.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/fa41f9820c7104d6f7a0b245c9d6769e.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.0",
+      productVersion: "11.1",
       showBanner: unityShowBanner,
     };
 
@@ -555,6 +555,15 @@
         );
       }
 
+      function isCredentialUsernameHelper(el) {
+        return !!(
+          isAndroid &&
+          el &&
+          el.getAttribute &&
+          el.getAttribute("data-unity-credential-helper") === "username"
+        );
+      }
+
       function isVisibleCandidateInput(el) {
         if (!isTextInput(el)) return false;
         if (!document.body.contains(el)) return false;
@@ -876,6 +885,7 @@
         input.style.setProperty("display", "block", "important");
         input.style.setProperty("visibility", "visible", "important");
         input.style.setProperty("opacity", "1", "important");
+        input.style.setProperty("pointer-events", "auto", "important");
 
         input.style.setProperty("font-size", "16px", "important");
         input.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
@@ -911,6 +921,7 @@
         button.style.setProperty("display", "block", "important");
         button.style.setProperty("visibility", "visible", "important");
         button.style.setProperty("opacity", "1", "important");
+        button.style.setProperty("pointer-events", "auto", "important");
 
         button.style.setProperty("font-size", "14px", "important");
         button.style.setProperty("line-height", INPUT_HEIGHT + "px", "important");
@@ -926,6 +937,28 @@
         button.style.setProperty("transform", transformValue, "important");
         button.style.setProperty("-webkit-transform", transformValue, "important");
         button.style.setProperty("will-change", "transform", "important");
+      }
+
+      function hideCredentialHelperPreview(input, button) {
+        // Keep the focused helper connected so Chrome Password Manager remains
+        // active. display:none or visibility:hidden could blur it and interrupt
+        // the credential flow, so only its painted preview becomes transparent.
+        input.style.setProperty("opacity", "0.01", "important");
+        input.style.setProperty("pointer-events", "none", "important");
+        input.style.setProperty("background", "transparent", "important");
+        input.style.setProperty("color", "transparent", "important");
+        input.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+        input.style.setProperty("caret-color", "transparent", "important");
+        input.style.setProperty("border", "0", "important");
+        input.style.setProperty("box-shadow", "none", "important");
+
+        if (button) {
+          button.style.setProperty("opacity", "0", "important");
+          button.style.setProperty("pointer-events", "none", "important");
+          button.style.setProperty("background", "transparent", "important");
+          button.style.setProperty("border", "0", "important");
+          button.style.setProperty("box-shadow", "none", "important");
+        }
       }
 
       function focusInputForAndroidMessenger(input) {
@@ -957,6 +990,23 @@
         focusInputForAndroidMessenger(targetInput);
 
         activeOkButton = findUnityOkButton(targetInput);
+
+        // The native Password Manager sheet closes Android's keyboard without
+        // dismissing the focused form control. Once this session has had an open
+        // keyboard, hide only our credential preview whenever its raw height is
+        // back to zero. The helper remains focused and in the DOM.
+        if (
+          isCredentialUsernameHelper(targetInput) &&
+          lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD &&
+          getRawKeyboardHeight() <= KEYBOARD_OPEN_THRESHOLD
+        ) {
+          hideCredentialHelperPreview(targetInput, activeOkButton);
+
+          setTimeout(function () {
+            isApplyingStyles = false;
+          }, 0);
+          return;
+        }
 
         const okWidth = activeOkButton ? OK_BUTTON_WIDTH : 0;
 
