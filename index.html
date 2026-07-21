@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.1'
+          'ServiceWorker.js?v=11.2'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.1";
+    const BUILD_VERSION = "11.2";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/bcfb304580e94a6fa4f152ad900e164c.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/11a10999ad2c53927c5170d4b190ed8f.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/49b862c4603718f65ae355c6c8502dac.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/fa41f9820c7104d6f7a0b245c9d6769e.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.1",
+      productVersion: "11.2",
       showBanner: unityShowBanner,
     };
 
@@ -1614,6 +1614,7 @@
       const CREDENTIAL_UI_FRAME_GAP_MS = 1000;
       let pollTimer = null;
       let attemptTimer = null;
+      let eagerPairResetTimer = null;
       let credentialUiReturnTimer = null;
       let credentialUiFrameRequest = null;
       let lastCredentialAnimationFrameAt = 0;
@@ -2034,6 +2035,35 @@
         }
       }
 
+      function scheduleEagerPairPasswordReset(state, pairKey) {
+        if (eagerPairResetTimer) clearTimeout(eagerPairResetTimer);
+
+        const elapsed = Date.now() - state.openedAt;
+        const delay = Math.max(0, EAGER_AUTOFILL_GUARD_MS - elapsed);
+
+        eagerPairResetTimer = setTimeout(function () {
+          eagerPairResetTimer = null;
+          if (loginState !== state || state.passwordEventSeen) return;
+          if (state.eagerPairKey !== pairKey) return;
+
+          const usernameInput = document.getElementById(USERNAME_ID);
+          const passwordInput = document.getElementById(PASSWORD_ID);
+          if (!usernameInput || !passwordInput) return;
+
+          const currentPairKey = usernameInput.value + "\u0000" + passwordInput.value;
+          if (currentPairKey !== pairKey) return;
+
+          // Keep Chrome's username suggestion and popup context, but remove the
+          // silently previewed password. Confirming the same last-used account
+          // will then create a real password transition instead of leaving an
+          // identical pair permanently quarantined.
+          passwordInput.value = "";
+          state.eagerPairKey = null;
+          state.lastObservedPairKey = usernameInput.value + "\u0000";
+          state.lastMutationAt = Date.now();
+        }, delay);
+      }
+
       function observeCredentialValues(passwordEventSeen) {
         if (!loginState) return;
 
@@ -2059,9 +2089,9 @@
           loginState.lastMutationAt = now;
 
           // Chrome Desktop may preview its first suggestion by silently placing
-          // values in both fields as the popup opens. Quarantine that first
-          // immediate pair; an actual password event or a different pair chosen
-          // by the user releases it.
+          // values in both fields as the popup opens. Quarantine that immediate
+          // pair, then clear only its password after the guard so confirming the
+          // same account produces an observable transition.
           if (
             username &&
             password &&
@@ -2070,6 +2100,7 @@
             now - loginState.openedAt < EAGER_AUTOFILL_GUARD_MS
           ) {
             loginState.eagerPairKey = pairKey;
+            scheduleEagerPairPasswordReset(loginState, pairKey);
           }
 
           return;
@@ -2222,6 +2253,11 @@
         if (attemptTimer) {
           clearTimeout(attemptTimer);
           attemptTimer = null;
+        }
+
+        if (eagerPairResetTimer) {
+          clearTimeout(eagerPairResetTimer);
+          eagerPairResetTimer = null;
         }
 
         if (credentialUiReturnTimer) {
