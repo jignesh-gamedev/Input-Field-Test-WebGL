@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=10.6'
+          'ServiceWorker.js?v=10.7'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "10.6";
+    const BUILD_VERSION = "10.7";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/05a5ae17019ba1a552f61f25d8d17146.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/e62b3d7651523e5677a240fec849fb17.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/c4daa9c0a6bccaefa05ed5dae02a1ed3.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/0638f86bd50dae9953c3e5bcf1b8d61f.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/e3af91e63d2aea752c499368550e90b3.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/34ca289942d6ee362de2336d0bdf2ad7.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/ad7033e76d24d8330c8aa10c260ee705.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/c16754f960b70734a5fdaa6f3d70527c.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "10.6",
+      productVersion: "10.7",
       showBanner: unityShowBanner,
     };
 
@@ -1588,6 +1588,10 @@
         return;
       }
 
+      function isAndroidBrowser() {
+        return /Android/i.test(navigator.userAgent || "");
+      }
+
       function isEditableTarget(target) {
         if (!target || target.nodeType !== 1) return false;
 
@@ -1684,6 +1688,9 @@
         username.addEventListener("change", function () {
           observeCredentialValues(false);
         });
+        username.addEventListener("beforeinput", function (event) {
+          handManualUsernameInputBackToUnity(event, username);
+        });
         password.addEventListener("input", function () {
           observeCredentialValues(true);
         });
@@ -1714,6 +1721,61 @@
         );
 
         return true;
+      }
+
+      function getManualEditResult(input, event) {
+        if (!event.isTrusted) return null;
+
+        const inputType = event.inputType || "";
+        const value = input.value || "";
+        let start = Number.isFinite(input.selectionStart)
+          ? input.selectionStart
+          : value.length;
+        let end = Number.isFinite(input.selectionEnd)
+          ? input.selectionEnd
+          : start;
+        let insertedText = "";
+
+        if (inputType === "insertText" || inputType === "insertCompositionText") {
+          insertedText = event.data || "";
+        } else if (inputType === "deleteContentBackward") {
+          if (start === end && start > 0) start--;
+        } else if (inputType === "deleteContentForward") {
+          if (start === end && end < value.length) end++;
+        } else {
+          // Autofill commonly uses insertReplacementText or omits inputType.
+          // Those mutations must continue through the credential-pair observer.
+          return null;
+        }
+
+        return {
+          text: value.slice(0, start) + insertedText + value.slice(end),
+          caretPosition: start + insertedText.length
+        };
+      }
+
+      function handManualUsernameInputBackToUnity(event, input) {
+        if (!isAndroidBrowser() || !loginState || loginState.handoffPending) return;
+        if (
+          !window.unityInstance ||
+          !loginState.gameObjectName ||
+          !loginState.manualInputCallbackMethodName
+        ) return;
+
+        const result = getManualEditResult(input, event);
+        if (!result) return;
+
+        // Keep the first typed edit, but apply it through TMP. The helper stays
+        // focused until TMP's native HTML input reports focus, so Android does
+        // not close and reopen the keyboard during the ownership handoff.
+        event.preventDefault();
+        loginState.handoffPending = true;
+
+        window.unityInstance.SendMessage(
+          loginState.gameObjectName,
+          loginState.manualInputCallbackMethodName,
+          JSON.stringify(result)
+        );
       }
 
       function cancelCredentialAttempt(reason) {
@@ -1830,6 +1892,7 @@
           loginState.gameObjectName = options.gameObjectName;
           loginState.callbackMethodName = options.callbackMethodName;
           loginState.closedCallbackMethodName = options.closedCallbackMethodName;
+          loginState.manualInputCallbackMethodName = options.manualInputCallbackMethodName;
           loginState.usernameBounds = options.usernameBounds;
           loginState.passwordBounds = options.passwordBounds;
           applyLoginFormLayout();
@@ -1872,13 +1935,15 @@
           gameObjectName: loginConfig.gameObjectName,
           callbackMethodName: loginConfig.callbackMethodName,
           closedCallbackMethodName: loginConfig.closedCallbackMethodName,
+          manualInputCallbackMethodName: loginConfig.manualInputCallbackMethodName,
           usernameBounds: loginConfig.usernameBounds,
           passwordBounds: loginConfig.passwordBounds,
           openedAt: now,
           lastObservedPairKey: usernameInput.value + "\u0000",
           lastMutationAt: now,
           passwordEventSeen: false,
-          eagerPairKey: null
+          eagerPairKey: null,
+          handoffPending: false
         };
 
         form.style.display = "block";
@@ -1888,9 +1953,16 @@
           observeCredentialValues(false);
         }, 50);
 
-        attemptTimer = setTimeout(function () {
-          cancelCredentialAttempt("timeout");
-        }, CREDENTIAL_ATTEMPT_TIMEOUT_MS);
+        // Desktop keeps the safety timeout. On Android the helper must remain
+        // alive while Password Manager or its keyboard suggestions own the UI;
+        // removing the focused helper closes the keyboard and strands Chrome's
+        // "Sign In" input accessory. Mobile closes only on success, an outside
+        // interaction, native-preview takeover, or manual typing handoff.
+        if (!isAndroidBrowser()) {
+          attemptTimer = setTimeout(function () {
+            cancelCredentialAttempt("timeout");
+          }, CREDENTIAL_ATTEMPT_TIMEOUT_MS);
+        }
 
         focusCredentialUsername();
       }
@@ -1947,6 +2019,18 @@
       };
 
       window.addEventListener("resize", applyLoginFormLayout);
+
+      document.addEventListener("focusin", function (event) {
+        if (!loginState || !loginState.handoffPending) return;
+        if (!isEditableTarget(event.target)) return;
+
+        const form = document.getElementById(FORM_ID);
+        if (form && form.contains(event.target)) return;
+
+        // TMP's native input now owns focus. Removing the helper at this point
+        // cannot create the focus gap that previously dismissed the keyboard.
+        removeActiveLoginForm();
+      }, true);
 
       // Interactions with either the helper input or Unity/TMP's native HTML
       // preview are never treated as outside-tap keyboard dismissal.
