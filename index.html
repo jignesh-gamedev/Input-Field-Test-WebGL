@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=10.3'
+          'ServiceWorker.js?v=10.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "10.3";
+    const BUILD_VERSION = "10.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/05a5ae17019ba1a552f61f25d8d17146.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/9176cfd8f136651b9d1150abce8992c6.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/0780a3d20522b988b38955b3aa3d368f.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/e3af91e63d2aea752c499368550e90b3.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "10.3",
+      productVersion: "10.4",
       showBanner: unityShowBanner,
     };
 
@@ -1563,6 +1563,7 @@
       let attemptTimer = null;
       let loginState = null;
       let loginConfig = null;
+      let suppressPrecreateUntilPointerLeaves = false;
 
       function isIOSBrowser() {
         return (
@@ -1720,7 +1721,7 @@
         if (!loginState) return;
 
         const cancelledState = loginState;
-        removeActiveLoginForm();
+        removeActiveLoginForm(true);
 
         if (
           window.unityInstance &&
@@ -1787,7 +1788,7 @@
 
         // Remove the helper before notifying Unity so it cannot steal focus or
         // keyboard events while TMP refreshes its visible fields.
-        removeActiveLoginForm();
+        removeActiveLoginForm(true);
 
         sendCredentialToUnity(
           completedState.gameObjectName,
@@ -1836,8 +1837,28 @@
         }
       }
 
-      function requestLoginForm() {
-        if (!loginConfig || loginState) return;
+      function focusCredentialUsername() {
+        const usernameInput = document.getElementById(USERNAME_ID);
+        if (!usernameInput) return;
+
+        try {
+          usernameInput.focus({ preventScroll: true });
+        } catch (_) {
+          usernameInput.focus();
+        }
+        usernameInput.click();
+      }
+
+      function requestLoginForm(shouldFocus) {
+        if (!loginConfig) return;
+
+        if (loginState) {
+          if (shouldFocus !== false) {
+            loginState.preparedOnly = false;
+            focusCredentialUsername();
+          }
+          return;
+        }
 
         const form = ensureCredentialForm();
         const usernameInput = document.getElementById(USERNAME_ID);
@@ -1861,7 +1882,8 @@
           lastObservedPairKey: usernameInput.value + "\u0000",
           lastMutationAt: now,
           passwordEventSeen: false,
-          eagerPairKey: null
+          eagerPairKey: null,
+          preparedOnly: shouldFocus === false
         };
 
         form.style.display = "block";
@@ -1875,18 +1897,15 @@
           cancelCredentialAttempt("timeout");
         }, CREDENTIAL_ATTEMPT_TIMEOUT_MS);
 
-        // When called by the capturing pointer handler, this runs inside the
-        // original trusted username tap and opens Chrome's normal Password
-        // Manager suggestions on both Desktop and Android.
-        try {
-          usernameInput.focus({ preventScroll: true });
-        } catch (_) {
-          usernameInput.focus();
+        // pointerover/pointermove may prepare the DOM without focusing it. The
+        // following pointerdown then lands directly on the real input. Keyboard
+        // selection and C# onSelect paths still request focus explicitly.
+        if (shouldFocus !== false) {
+          focusCredentialUsername();
         }
-        usernameInput.click();
       }
 
-      function removeActiveLoginForm() {
+      function removeActiveLoginForm(suppressNextPrecreate) {
         if (pollTimer) {
           clearInterval(pollTimer);
           pollTimer = null;
@@ -1899,13 +1918,18 @@
 
         loginState = null;
 
+        if (suppressNextPrecreate) {
+          suppressPrecreateUntilPointerLeaves = true;
+        }
+
         const form = document.getElementById(FORM_ID);
         if (form) form.remove();
       }
 
       function removeLoginForm() {
-        removeActiveLoginForm();
+        removeActiveLoginForm(false);
         loginConfig = null;
+        suppressPrecreateUntilPointerLeaves = false;
       }
 
       window.UnityCredentialAutofill = {
@@ -1939,9 +1963,54 @@
 
       window.addEventListener("resize", applyLoginFormLayout);
 
-      // The form is created synchronously inside the trusted username pointer
-      // event. Interactions with either the helper input or Unity/TMP's native
-      // HTML preview are never treated as outside-tap keyboard dismissal.
+      function prepareLoginFormForPointer(event) {
+        // A touch pointerover marks a new contact, so allow the next explicit
+        // username tap even if the previous credential attempt just completed.
+        if (event.pointerType === "touch" && suppressPrecreateUntilPointerLeaves) {
+          suppressPrecreateUntilPointerLeaves = false;
+        }
+
+        if (
+          !loginConfig ||
+          loginState ||
+          suppressPrecreateUntilPointerLeaves ||
+          isEditableTarget(event.target) ||
+          !pointerIsInsideUsername(event, loginConfig)
+        ) return;
+
+        // Pointer Events requires pointerover before pointerdown on touch
+        // devices. Preparing here lets the following first tap be hit-tested
+        // against Chrome's real username input instead of the Unity canvas.
+        requestLoginForm(false);
+      }
+
+      document.addEventListener("pointerover", prepareLoginFormForPointer, true);
+
+      document.addEventListener("pointermove", function (event) {
+        if (!loginConfig) return;
+
+        const insideUsername = pointerIsInsideUsername(event, loginConfig);
+
+        if (suppressPrecreateUntilPointerLeaves && !insideUsername) {
+          suppressPrecreateUntilPointerLeaves = false;
+        }
+
+        if (loginState && loginState.preparedOnly && !insideUsername) {
+          removeActiveLoginForm(false);
+          return;
+        }
+
+        prepareLoginFormForPointer(event);
+      }, true);
+
+      document.addEventListener("pointerout", function (event) {
+        if (event.pointerType === "touch") {
+          suppressPrecreateUntilPointerLeaves = false;
+        }
+      }, true);
+
+      // Interactions with either the helper input or Unity/TMP's native HTML
+      // preview are never treated as outside-tap keyboard dismissal.
       document.addEventListener("pointerdown", function (event) {
         if (!loginConfig) return;
         if (event.button !== undefined && event.button !== 0) return;
@@ -1949,15 +2018,25 @@
         const form = document.getElementById(FORM_ID);
 
         if (isEditableTarget(event.target)) {
-          if (loginState && (!form || !form.contains(event.target))) {
+          if (loginState && form && form.contains(event.target)) {
+            loginState.preparedOnly = false;
+          } else if (loginState) {
             // A TMP/native preview has taken focus. Remove only the helper DOM;
             // do not notify Unity or deactivate its input field.
-            removeActiveLoginForm();
+            removeActiveLoginForm(true);
           }
           return;
         }
 
         if (loginState) {
+          if (
+            loginState.preparedOnly &&
+            pointerIsInsideUsername(event, loginState)
+          ) {
+            requestLoginForm(true);
+            return;
+          }
+
           if (Date.now() - loginState.openedAt < 250) return;
 
           if (!form || !form.contains(event.target)) {
@@ -1968,7 +2047,7 @@
 
         if (!pointerIsInsideUsername(event, loginConfig)) return;
 
-        requestLoginForm();
+        requestLoginForm(true);
       }, true);
 
       window.addEventListener("pagehide", removeLoginForm);
