@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=10.9'
+          'ServiceWorker.js?v=11.0'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "10.9";
+    const BUILD_VERSION = "11.0";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/3125f02e23c5b8f27e2988d3d4bb3059.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/bcfb304580e94a6fa4f152ad900e164c.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/a50ddd767ab711cf2dec3a16f5781a62.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/8a048bb45cc437e23dee867b0c4b9b6f.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/34ca289942d6ee362de2336d0bdf2ad7.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/fa41f9820c7104d6f7a0b245c9d6769e.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/b3dd5e4f4c4c37b3387491e71ee6d684.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/d9d81e28938f2ff2be6d2413c1dd1969.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "10.9",
+      productVersion: "11.0",
       showBanner: unityShowBanner,
     };
 
@@ -1561,9 +1561,12 @@
       const EAGER_AUTOFILL_GUARD_MS = 400;
       const CREDENTIAL_UI_RETURN_SETTLE_MS = 500;
       const CREDENTIAL_UI_FOCUS_ARM_MS = 600;
+      const CREDENTIAL_UI_FRAME_GAP_MS = 1000;
       let pollTimer = null;
       let attemptTimer = null;
       let credentialUiReturnTimer = null;
+      let credentialUiFrameRequest = null;
+      let lastCredentialAnimationFrameAt = 0;
       let loginState = null;
       let loginConfig = null;
       let lastTmpNativeInput = null;
@@ -1731,14 +1734,12 @@
           event.preventDefault();
         });
 
-        username.addEventListener("input", function () {
+        username.addEventListener("input", function (event) {
+          mirrorManualUsernameInputToUnity(event, username);
           observeCredentialValues(false);
         });
         username.addEventListener("change", function () {
           observeCredentialValues(false);
-        });
-        username.addEventListener("beforeinput", function (event) {
-          handManualUsernameInputBackToUnity(event, username);
         });
         username.addEventListener("focus", function () {
           if (!loginState) return;
@@ -1782,54 +1783,44 @@
         return true;
       }
 
-      function getManualEditResult(input, event) {
-        if (!event.isTrusted) return null;
+      function isManualUsernameInputEvent(event) {
+        if (!event.isTrusted) return false;
 
-        const inputType = event.inputType || "";
-        const value = input.value || "";
-        let start = Number.isFinite(input.selectionStart)
-          ? input.selectionStart
-          : value.length;
-        let end = Number.isFinite(input.selectionEnd)
-          ? input.selectionEnd
-          : start;
-        let insertedText = "";
-
-        if (inputType === "insertText" || inputType === "insertCompositionText") {
-          insertedText = event.data || "";
-        } else if (inputType === "deleteContentBackward") {
-          if (start === end && start > 0) start--;
-        } else if (inputType === "deleteContentForward") {
-          if (start === end && end < value.length) end++;
-        } else {
-          // Autofill commonly uses insertReplacementText or omits inputType.
-          // Those mutations must continue through the credential-pair observer.
-          return null;
-        }
-
-        return {
-          text: value.slice(0, start) + insertedText + value.slice(end),
-          caretPosition: start + insertedText.length
-        };
+        return (
+          event.inputType === "insertText" ||
+          event.inputType === "insertCompositionText" ||
+          event.inputType === "deleteContentBackward" ||
+          event.inputType === "deleteContentForward" ||
+          event.inputType === "insertFromPaste" ||
+          event.inputType === "insertFromDrop" ||
+          event.inputType === "deleteByCut" ||
+          event.inputType === "historyUndo" ||
+          event.inputType === "historyRedo"
+        );
       }
 
-      function handManualUsernameInputBackToUnity(event, input) {
+      function mirrorManualUsernameInputToUnity(event, input) {
         if (!isAndroidBrowser() || !loginState || loginState.handoffPending) return;
+        if (!isManualUsernameInputEvent(event)) return;
         if (
           !window.unityInstance ||
           !loginState.gameObjectName ||
           !loginState.manualInputCallbackMethodName
         ) return;
 
-        const result = getManualEditResult(input, event);
-        if (!result) return;
+        const text = input.value || "";
+        const caretPosition = Number.isFinite(input.selectionEnd)
+          ? input.selectionEnd
+          : text.length;
 
-        // Keep the first typed edit, apply it through TMP, and synchronously give
-        // the already-created TMP native input browser focus. Calling only
-        // ActivateInputField is insufficient when TMP still considers itself
-        // active: Chrome otherwise leaves every later key with this helper.
-        event.preventDefault();
-        handInputOwnershipBackToTmp(result);
+        // Keep Chrome's credential helper focused so keyboard suggestions keep
+        // filtering, but mirror its complete value into the visible TMP field.
+        loginState.lastMirroredUsername = text;
+        window.unityInstance.SendMessage(
+          loginState.gameObjectName,
+          loginState.manualInputCallbackMethodName,
+          JSON.stringify({ text: text, caretPosition: caretPosition })
+        );
       }
 
       function focusTmpNativeInput(state, result) {
@@ -1859,7 +1850,7 @@
         if (
           !window.unityInstance ||
           !loginState.gameObjectName ||
-          !loginState.manualInputCallbackMethodName
+          !loginState.focusRestoreCallbackMethodName
         ) return;
 
         const handoffState = loginState;
@@ -1872,7 +1863,7 @@
 
         window.unityInstance.SendMessage(
           handoffState.gameObjectName,
-          handoffState.manualInputCallbackMethodName,
+          handoffState.focusRestoreCallbackMethodName,
           JSON.stringify(result)
         );
 
@@ -1922,8 +1913,8 @@
           // Restore the text TMP had before the helper opened and make TMP's own
           // native input the active keyboard target.
           handInputOwnershipBackToTmp({
-            text: returnState.originalUsername,
-            caretPosition: returnState.originalUsername.length
+            text: returnState.lastMirroredUsername,
+            caretPosition: returnState.lastMirroredUsername.length
           });
         }, CREDENTIAL_UI_RETURN_SETTLE_MS);
       }
@@ -1942,6 +1933,36 @@
         } else if (loginState.pageFocusWasLost) {
           scheduleReturnToTmpAfterCredentialUi();
         }
+      }
+
+      function monitorCredentialUiAnimationFrame(timestamp) {
+        credentialUiFrameRequest = null;
+        if (!loginState || !isAndroidBrowser()) return;
+
+        if (
+          loginState.credentialUiInteractionSeen &&
+          lastCredentialAnimationFrameAt > 0 &&
+          timestamp - lastCredentialAnimationFrameAt >= CREDENTIAL_UI_FRAME_GAP_MS
+        ) {
+          // Native Password Manager UI can suspend page rendering without
+          // changing DOM focus. The first frame after that suspension is the
+          // only page-observable dismissal signal Chrome exposes in this case.
+          loginState.helperBlurredForCredentialUi = true;
+          scheduleReturnToTmpAfterCredentialUi();
+        }
+
+        lastCredentialAnimationFrameAt = timestamp;
+        credentialUiFrameRequest = requestAnimationFrame(
+          monitorCredentialUiAnimationFrame
+        );
+      }
+
+      function startCredentialUiAnimationMonitor() {
+        if (!isAndroidBrowser() || credentialUiFrameRequest) return;
+        lastCredentialAnimationFrameAt = 0;
+        credentialUiFrameRequest = requestAnimationFrame(
+          monitorCredentialUiAnimationFrame
+        );
       }
 
       function cancelCredentialAttempt(reason) {
@@ -2059,6 +2080,7 @@
           loginState.callbackMethodName = options.callbackMethodName;
           loginState.closedCallbackMethodName = options.closedCallbackMethodName;
           loginState.manualInputCallbackMethodName = options.manualInputCallbackMethodName;
+          loginState.focusRestoreCallbackMethodName = options.focusRestoreCallbackMethodName;
           loginState.usernameBounds = options.usernameBounds;
           loginState.passwordBounds = options.passwordBounds;
           applyLoginFormLayout();
@@ -2102,6 +2124,7 @@
           callbackMethodName: loginConfig.callbackMethodName,
           closedCallbackMethodName: loginConfig.closedCallbackMethodName,
           manualInputCallbackMethodName: loginConfig.manualInputCallbackMethodName,
+          focusRestoreCallbackMethodName: loginConfig.focusRestoreCallbackMethodName,
           usernameBounds: loginConfig.usernameBounds,
           passwordBounds: loginConfig.passwordBounds,
           openedAt: now,
@@ -2110,7 +2133,7 @@
           passwordEventSeen: false,
           eagerPairKey: null,
           handoffPending: false,
-          originalUsername: loginConfig.username || "",
+          lastMirroredUsername: loginConfig.username || "",
           tmpNativeInput: lastTmpNativeInput,
           credentialUiInteractionSeen: false,
           helperBlurredForCredentialUi: false,
@@ -2124,12 +2147,13 @@
           observeCredentialValues(false);
           observeCredentialUiPageFocus();
         }, 50);
+        startCredentialUiAnimationMonitor();
 
         // Desktop keeps the safety timeout. On Android the helper must remain
         // alive while Password Manager or its keyboard suggestions own the UI;
         // removing the focused helper closes the keyboard and strands Chrome's
         // "Sign In" input accessory. Mobile closes only on success, an outside
-        // interaction, native-preview takeover, or manual typing handoff.
+        // interaction, native-preview takeover, or explicit focus restoration.
         if (!isAndroidBrowser()) {
           attemptTimer = setTimeout(function () {
             cancelCredentialAttempt("timeout");
@@ -2154,6 +2178,12 @@
           clearTimeout(credentialUiReturnTimer);
           credentialUiReturnTimer = null;
         }
+
+        if (credentialUiFrameRequest) {
+          cancelAnimationFrame(credentialUiFrameRequest);
+          credentialUiFrameRequest = null;
+        }
+        lastCredentialAnimationFrameAt = 0;
 
         loginState = null;
 
