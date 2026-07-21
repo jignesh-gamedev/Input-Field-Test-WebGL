@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=10.4'
+          'ServiceWorker.js?v=10.5'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "10.4";
+    const BUILD_VERSION = "10.5";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/05a5ae17019ba1a552f61f25d8d17146.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/0780a3d20522b988b38955b3aa3d368f.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/818b67ce22e8b3d8d7b6bbc82d575566.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/e3af91e63d2aea752c499368550e90b3.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "10.4",
+      productVersion: "10.5",
       showBanner: unityShowBanner,
     };
 
@@ -1544,7 +1544,7 @@
       });
     })();
   </script>
-  <script>
+  <script type="application/x-unity-legacy-credential-bridge">
     /*
       Google Password Manager form-autofill bridge for Unity WebGL.
 
@@ -2056,6 +2056,214 @@
         window.visualViewport.addEventListener("resize", applyLoginFormLayout);
         window.visualViewport.addEventListener("scroll", applyLoginFormLayout);
       }
+    })();
+  </script>
+  <script>
+    /*
+      Browser-managed credential chooser for Unity WebGL.
+
+      Chrome's Immediate UI mode presents saved Google Password Manager
+      credentials from a user gesture without placing an HTML input over TMP.
+      Older Chrome versions fall back to the standard mediated credential API.
+    */
+    (function () {
+      let loginConfig = null;
+      let requestInFlight = false;
+      let requestGeneration = 0;
+      let immediateUiSupported = false;
+
+      function isIOSBrowser() {
+        return (
+          /iPad|iPhone|iPod/.test(navigator.userAgent || "") ||
+          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+        );
+      }
+
+      function createNoopCredentialBridge() {
+        window.UnityCredentialAutofill = {
+          configureLoginForm: function () { },
+          removeLoginForm: function () { },
+          requestLoginForm: function () { },
+          saveCredentials: function () { }
+        };
+      }
+
+      // Preserve the existing iOS no-op behavior. Safari/PWA input handling is
+      // intentionally left entirely to TMP and the project's native preview.
+      if (isIOSBrowser()) {
+        createNoopCredentialBridge();
+        return;
+      }
+
+      function detectImmediateUiSupport() {
+        if (
+          typeof PublicKeyCredential === "undefined" ||
+          typeof PublicKeyCredential.getClientCapabilities !== "function"
+        ) return;
+
+        try {
+          Promise.resolve(PublicKeyCredential.getClientCapabilities())
+            .then(function (capabilities) {
+              immediateUiSupported = !!(
+                capabilities && capabilities.immediateGet
+              );
+            })
+            .catch(function () {
+              immediateUiSupported = false;
+            });
+        } catch (_) {
+          immediateUiSupported = false;
+        }
+      }
+
+      function isEditableTarget(target) {
+        if (!target || target.nodeType !== 1) return false;
+        return (
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable
+        );
+      }
+
+      function pointerIsInsideUsername(event, state) {
+        const canvas = document.getElementById("unity-canvas");
+        if (!canvas || !state || !state.usernameBounds) return false;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        if (canvasRect.width <= 0 || canvasRect.height <= 0) return false;
+
+        const x = (event.clientX - canvasRect.left) / canvasRect.width;
+        const y = (event.clientY - canvasRect.top) / canvasRect.height;
+        const bounds = state.usernameBounds;
+
+        return (
+          x >= bounds.left &&
+          x <= bounds.left + bounds.width &&
+          y >= bounds.top &&
+          y <= bounds.top + bounds.height
+        );
+      }
+
+      function sendToUnity(config, methodName, payload) {
+        if (
+          !window.unityInstance ||
+          !config ||
+          !config.gameObjectName ||
+          !methodName
+        ) return;
+
+        window.unityInstance.SendMessage(
+          config.gameObjectName,
+          methodName,
+          payload
+        );
+      }
+
+      async function requestSavedCredential() {
+        if (
+          requestInFlight ||
+          !loginConfig ||
+          !navigator.credentials ||
+          typeof navigator.credentials.get !== "function"
+        ) return;
+
+        const config = loginConfig;
+        const generation = requestGeneration;
+        requestInFlight = true;
+
+        try {
+          // Immediate UI is the Google Password Manager dialog intended for a
+          // deliberate sign-in moment. If unavailable, keep the older mediated
+          // password request that already works on earlier Chrome versions.
+          const options = immediateUiSupported
+            ? { password: true, uiMode: "immediate" }
+            : { password: true, mediation: "required" };
+
+          const credential = await navigator.credentials.get(options);
+
+          if (
+            generation !== requestGeneration ||
+            config !== loginConfig ||
+            !credential
+          ) return;
+
+          sendToUnity(
+            config,
+            config.callbackMethodName,
+            JSON.stringify({
+              username: credential.id || "",
+              password: credential.password || ""
+            })
+          );
+        } catch (error) {
+          if (generation !== requestGeneration || config !== loginConfig) return;
+
+          sendToUnity(
+            config,
+            config.closedCallbackMethodName,
+            error && error.name ? error.name : "dismissed"
+          );
+        } finally {
+          if (generation === requestGeneration) {
+            requestInFlight = false;
+          }
+        }
+      }
+
+      function configureLoginForm(options) {
+        loginConfig = options;
+      }
+
+      function removeLoginForm() {
+        loginConfig = null;
+        requestGeneration++;
+        requestInFlight = false;
+      }
+
+      window.UnityCredentialAutofill = {
+        configureLoginForm: configureLoginForm,
+        removeLoginForm: removeLoginForm,
+        requestLoginForm: requestSavedCredential,
+
+        saveCredentials: async function (username, password) {
+          username = (username || "").trim();
+          password = password || "";
+
+          if (!username || !password) return;
+
+          try {
+            if (!window.PasswordCredential) return;
+            if (!navigator.credentials || !navigator.credentials.store) return;
+
+            const credential = new PasswordCredential({
+              id: username,
+              name: username,
+              password: password
+            });
+
+            await navigator.credentials.store(credential);
+          } catch (error) {
+            console.warn("Credential store failed:", error);
+          }
+        }
+      };
+
+      // Start capability detection before Unity becomes interactive so the
+      // first username tap can synchronously choose the correct request mode.
+      detectImmediateUiSupport();
+
+      document.addEventListener("pointerdown", function (event) {
+        if (!loginConfig) return;
+        if (event.button !== undefined && event.button !== 0) return;
+        if (isEditableTarget(event.target)) return;
+        if (!pointerIsInsideUsername(event, loginConfig)) return;
+
+        // Do not prevent the event: Unity must still select TMP and retain its
+        // normal desktop/mobile keyboard and native-input-preview behavior.
+        requestSavedCredential();
+      }, true);
+
+      window.addEventListener("pagehide", removeLoginForm);
     })();
   </script>
 
