@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=10.5'
+          'ServiceWorker.js?v=10.6'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "10.5";
+    const BUILD_VERSION = "10.6";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/05a5ae17019ba1a552f61f25d8d17146.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/818b67ce22e8b3d8d7b6bbc82d575566.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/c4daa9c0a6bccaefa05ed5dae02a1ed3.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/e3af91e63d2aea752c499368550e90b3.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "10.5",
+      productVersion: "10.6",
       showBanner: unityShowBanner,
     };
 
@@ -1544,7 +1544,7 @@
       });
     })();
   </script>
-  <script type="application/x-unity-legacy-credential-bridge">
+  <script>
     /*
       Google Password Manager form-autofill bridge for Unity WebGL.
 
@@ -1563,7 +1563,6 @@
       let attemptTimer = null;
       let loginState = null;
       let loginConfig = null;
-      let suppressPrecreateUntilPointerLeaves = false;
 
       function isIOSBrowser() {
         return (
@@ -1721,7 +1720,7 @@
         if (!loginState) return;
 
         const cancelledState = loginState;
-        removeActiveLoginForm(true);
+        removeActiveLoginForm();
 
         if (
           window.unityInstance &&
@@ -1788,7 +1787,7 @@
 
         // Remove the helper before notifying Unity so it cannot steal focus or
         // keyboard events while TMP refreshes its visible fields.
-        removeActiveLoginForm(true);
+        removeActiveLoginForm();
 
         sendCredentialToUnity(
           completedState.gameObjectName,
@@ -1849,14 +1848,11 @@
         usernameInput.click();
       }
 
-      function requestLoginForm(shouldFocus) {
+      function requestLoginForm() {
         if (!loginConfig) return;
 
         if (loginState) {
-          if (shouldFocus !== false) {
-            loginState.preparedOnly = false;
-            focusCredentialUsername();
-          }
+          focusCredentialUsername();
           return;
         }
 
@@ -1882,8 +1878,7 @@
           lastObservedPairKey: usernameInput.value + "\u0000",
           lastMutationAt: now,
           passwordEventSeen: false,
-          eagerPairKey: null,
-          preparedOnly: shouldFocus === false
+          eagerPairKey: null
         };
 
         form.style.display = "block";
@@ -1897,15 +1892,10 @@
           cancelCredentialAttempt("timeout");
         }, CREDENTIAL_ATTEMPT_TIMEOUT_MS);
 
-        // pointerover/pointermove may prepare the DOM without focusing it. The
-        // following pointerdown then lands directly on the real input. Keyboard
-        // selection and C# onSelect paths still request focus explicitly.
-        if (shouldFocus !== false) {
-          focusCredentialUsername();
-        }
+        focusCredentialUsername();
       }
 
-      function removeActiveLoginForm(suppressNextPrecreate) {
+      function removeActiveLoginForm() {
         if (pollTimer) {
           clearInterval(pollTimer);
           pollTimer = null;
@@ -1918,18 +1908,13 @@
 
         loginState = null;
 
-        if (suppressNextPrecreate) {
-          suppressPrecreateUntilPointerLeaves = true;
-        }
-
         const form = document.getElementById(FORM_ID);
         if (form) form.remove();
       }
 
       function removeLoginForm() {
-        removeActiveLoginForm(false);
+        removeActiveLoginForm();
         loginConfig = null;
-        suppressPrecreateUntilPointerLeaves = false;
       }
 
       window.UnityCredentialAutofill = {
@@ -1963,52 +1948,6 @@
 
       window.addEventListener("resize", applyLoginFormLayout);
 
-      function prepareLoginFormForPointer(event) {
-        // A touch pointerover marks a new contact, so allow the next explicit
-        // username tap even if the previous credential attempt just completed.
-        if (event.pointerType === "touch" && suppressPrecreateUntilPointerLeaves) {
-          suppressPrecreateUntilPointerLeaves = false;
-        }
-
-        if (
-          !loginConfig ||
-          loginState ||
-          suppressPrecreateUntilPointerLeaves ||
-          isEditableTarget(event.target) ||
-          !pointerIsInsideUsername(event, loginConfig)
-        ) return;
-
-        // Pointer Events requires pointerover before pointerdown on touch
-        // devices. Preparing here lets the following first tap be hit-tested
-        // against Chrome's real username input instead of the Unity canvas.
-        requestLoginForm(false);
-      }
-
-      document.addEventListener("pointerover", prepareLoginFormForPointer, true);
-
-      document.addEventListener("pointermove", function (event) {
-        if (!loginConfig) return;
-
-        const insideUsername = pointerIsInsideUsername(event, loginConfig);
-
-        if (suppressPrecreateUntilPointerLeaves && !insideUsername) {
-          suppressPrecreateUntilPointerLeaves = false;
-        }
-
-        if (loginState && loginState.preparedOnly && !insideUsername) {
-          removeActiveLoginForm(false);
-          return;
-        }
-
-        prepareLoginFormForPointer(event);
-      }, true);
-
-      document.addEventListener("pointerout", function (event) {
-        if (event.pointerType === "touch") {
-          suppressPrecreateUntilPointerLeaves = false;
-        }
-      }, true);
-
       // Interactions with either the helper input or Unity/TMP's native HTML
       // preview are never treated as outside-tap keyboard dismissal.
       document.addEventListener("pointerdown", function (event) {
@@ -2019,24 +1958,16 @@
 
         if (isEditableTarget(event.target)) {
           if (loginState && form && form.contains(event.target)) {
-            loginState.preparedOnly = false;
+            return;
           } else if (loginState) {
             // A TMP/native preview has taken focus. Remove only the helper DOM;
             // do not notify Unity or deactivate its input field.
-            removeActiveLoginForm(true);
+            removeActiveLoginForm();
           }
           return;
         }
 
         if (loginState) {
-          if (
-            loginState.preparedOnly &&
-            pointerIsInsideUsername(event, loginState)
-          ) {
-            requestLoginForm(true);
-            return;
-          }
-
           if (Date.now() - loginState.openedAt < 250) return;
 
           if (!form || !form.contains(event.target)) {
@@ -2047,7 +1978,7 @@
 
         if (!pointerIsInsideUsername(event, loginConfig)) return;
 
-        requestLoginForm(true);
+        requestLoginForm();
       }, true);
 
       window.addEventListener("pagehide", removeLoginForm);
@@ -2058,215 +1989,6 @@
       }
     })();
   </script>
-  <script>
-    /*
-      Browser-managed credential chooser for Unity WebGL.
-
-      Chrome's Immediate UI mode presents saved Google Password Manager
-      credentials from a user gesture without placing an HTML input over TMP.
-      Older Chrome versions fall back to the standard mediated credential API.
-    */
-    (function () {
-      let loginConfig = null;
-      let requestInFlight = false;
-      let requestGeneration = 0;
-      let immediateUiSupported = false;
-
-      function isIOSBrowser() {
-        return (
-          /iPad|iPhone|iPod/.test(navigator.userAgent || "") ||
-          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-        );
-      }
-
-      function createNoopCredentialBridge() {
-        window.UnityCredentialAutofill = {
-          configureLoginForm: function () { },
-          removeLoginForm: function () { },
-          requestLoginForm: function () { },
-          saveCredentials: function () { }
-        };
-      }
-
-      // Preserve the existing iOS no-op behavior. Safari/PWA input handling is
-      // intentionally left entirely to TMP and the project's native preview.
-      if (isIOSBrowser()) {
-        createNoopCredentialBridge();
-        return;
-      }
-
-      function detectImmediateUiSupport() {
-        if (
-          typeof PublicKeyCredential === "undefined" ||
-          typeof PublicKeyCredential.getClientCapabilities !== "function"
-        ) return;
-
-        try {
-          Promise.resolve(PublicKeyCredential.getClientCapabilities())
-            .then(function (capabilities) {
-              immediateUiSupported = !!(
-                capabilities && capabilities.immediateGet
-              );
-            })
-            .catch(function () {
-              immediateUiSupported = false;
-            });
-        } catch (_) {
-          immediateUiSupported = false;
-        }
-      }
-
-      function isEditableTarget(target) {
-        if (!target || target.nodeType !== 1) return false;
-        return (
-          target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable
-        );
-      }
-
-      function pointerIsInsideUsername(event, state) {
-        const canvas = document.getElementById("unity-canvas");
-        if (!canvas || !state || !state.usernameBounds) return false;
-
-        const canvasRect = canvas.getBoundingClientRect();
-        if (canvasRect.width <= 0 || canvasRect.height <= 0) return false;
-
-        const x = (event.clientX - canvasRect.left) / canvasRect.width;
-        const y = (event.clientY - canvasRect.top) / canvasRect.height;
-        const bounds = state.usernameBounds;
-
-        return (
-          x >= bounds.left &&
-          x <= bounds.left + bounds.width &&
-          y >= bounds.top &&
-          y <= bounds.top + bounds.height
-        );
-      }
-
-      function sendToUnity(config, methodName, payload) {
-        if (
-          !window.unityInstance ||
-          !config ||
-          !config.gameObjectName ||
-          !methodName
-        ) return;
-
-        window.unityInstance.SendMessage(
-          config.gameObjectName,
-          methodName,
-          payload
-        );
-      }
-
-      async function requestSavedCredential() {
-        if (
-          requestInFlight ||
-          !loginConfig ||
-          !navigator.credentials ||
-          typeof navigator.credentials.get !== "function"
-        ) return;
-
-        const config = loginConfig;
-        const generation = requestGeneration;
-        requestInFlight = true;
-
-        try {
-          // Immediate UI is the Google Password Manager dialog intended for a
-          // deliberate sign-in moment. If unavailable, keep the older mediated
-          // password request that already works on earlier Chrome versions.
-          const options = immediateUiSupported
-            ? { password: true, uiMode: "immediate" }
-            : { password: true, mediation: "required" };
-
-          const credential = await navigator.credentials.get(options);
-
-          if (
-            generation !== requestGeneration ||
-            config !== loginConfig ||
-            !credential
-          ) return;
-
-          sendToUnity(
-            config,
-            config.callbackMethodName,
-            JSON.stringify({
-              username: credential.id || "",
-              password: credential.password || ""
-            })
-          );
-        } catch (error) {
-          if (generation !== requestGeneration || config !== loginConfig) return;
-
-          sendToUnity(
-            config,
-            config.closedCallbackMethodName,
-            error && error.name ? error.name : "dismissed"
-          );
-        } finally {
-          if (generation === requestGeneration) {
-            requestInFlight = false;
-          }
-        }
-      }
-
-      function configureLoginForm(options) {
-        loginConfig = options;
-      }
-
-      function removeLoginForm() {
-        loginConfig = null;
-        requestGeneration++;
-        requestInFlight = false;
-      }
-
-      window.UnityCredentialAutofill = {
-        configureLoginForm: configureLoginForm,
-        removeLoginForm: removeLoginForm,
-        requestLoginForm: requestSavedCredential,
-
-        saveCredentials: async function (username, password) {
-          username = (username || "").trim();
-          password = password || "";
-
-          if (!username || !password) return;
-
-          try {
-            if (!window.PasswordCredential) return;
-            if (!navigator.credentials || !navigator.credentials.store) return;
-
-            const credential = new PasswordCredential({
-              id: username,
-              name: username,
-              password: password
-            });
-
-            await navigator.credentials.store(credential);
-          } catch (error) {
-            console.warn("Credential store failed:", error);
-          }
-        }
-      };
-
-      // Start capability detection before Unity becomes interactive so the
-      // first username tap can synchronously choose the correct request mode.
-      detectImmediateUiSupport();
-
-      document.addEventListener("pointerdown", function (event) {
-        if (!loginConfig) return;
-        if (event.button !== undefined && event.button !== 0) return;
-        if (isEditableTarget(event.target)) return;
-        if (!pointerIsInsideUsername(event, loginConfig)) return;
-
-        // Do not prevent the event: Unity must still select TMP and retain its
-        // normal desktop/mobile keyboard and native-input-preview behavior.
-        requestSavedCredential();
-      }, true);
-
-      window.addEventListener("pagehide", removeLoginForm);
-    })();
-  </script>
-
 </body>
 
 </html>
