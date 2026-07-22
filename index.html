@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.7'
+          'ServiceWorker.js?v=11.8'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.7";
+    const BUILD_VERSION = "11.8";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/78cad2dbbdd50258a7e3652f4daaabce.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/0a60cc182426942a638e8ce5c9c89c1e.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/62d1c927f9108e8e9ae6a7b50b7492ff.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/15fe430b62dd4dde76618b07226dc81d.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.7",
+      productVersion: "11.8",
       showBanner: unityShowBanner,
     };
 
@@ -474,6 +474,13 @@
       let positionLoopTimer = null;
       let mutationDebounceTimer = null;
       let isApplyingStyles = false;
+      let layoutGeneration = 0;
+      const scheduledLayoutTimers = new Set();
+      const positionedInputs = new Set();
+      const positionedButtons = new Set();
+      const retiredInputs = new WeakSet();
+      const originalInputStyles = new WeakMap();
+      const originalButtonStyles = new WeakMap();
 
       const INPUT_BORDER_COLOR = "#39A3D0";
       const INPUT_BORDER_WIDTH = "1px";
@@ -576,9 +583,96 @@
         );
       }
 
+      function rememberOriginalStyle(element, snapshots, positioned) {
+        if (!element || snapshots.has(element)) return;
+
+        snapshots.set(element, {
+          hadStyle: element.hasAttribute("style"),
+          cssText: element.getAttribute("style") || ""
+        });
+        positioned.add(element);
+      }
+
+      function restoreOriginalStyle(element, snapshots, positioned) {
+        if (!element || !snapshots.has(element)) return;
+
+        const snapshot = snapshots.get(element);
+        if (snapshot.hadStyle) {
+          element.setAttribute("style", snapshot.cssText);
+        } else {
+          element.removeAttribute("style");
+        }
+
+        snapshots.delete(element);
+        positioned.delete(element);
+      }
+
+      function retirePositionedInput(input) {
+        if (!input) return;
+
+        restoreOriginalStyle(input, originalInputStyles, positionedInputs);
+        retiredInputs.add(input);
+      }
+
+      function restorePositionedButton(button) {
+        restoreOriginalStyle(button, originalButtonStyles, positionedButtons);
+      }
+
+      function invalidateScheduledLayout() {
+        layoutGeneration += 1;
+
+        scheduledLayoutTimers.forEach(function (timer) {
+          clearTimeout(timer);
+        });
+        scheduledLayoutTimers.clear();
+
+        if (clearSessionTimer) {
+          clearTimeout(clearSessionTimer);
+          clearSessionTimer = null;
+        }
+
+        if (positionLoopTimer) {
+          clearInterval(positionLoopTimer);
+          positionLoopTimer = null;
+        }
+
+        if (mutationDebounceTimer) {
+          clearTimeout(mutationDebounceTimer);
+          mutationDebounceTimer = null;
+        }
+
+        isApplyingStyles = false;
+      }
+
+      function scheduleLayoutTimeout(callback, delay, generation) {
+        const expectedGeneration = generation === undefined
+          ? layoutGeneration
+          : generation;
+        const timer = setTimeout(function () {
+          scheduledLayoutTimers.delete(timer);
+          if (expectedGeneration !== layoutGeneration) return;
+          callback();
+        }, delay);
+
+        scheduledLayoutTimers.add(timer);
+        return timer;
+      }
+
+      function scheduleLayoutAnimationFrame(callback, generation) {
+        const expectedGeneration = generation === undefined
+          ? layoutGeneration
+          : generation;
+
+        requestAnimationFrame(function () {
+          if (expectedGeneration !== layoutGeneration) return;
+          callback();
+        });
+      }
+
       function isVisibleCandidateInput(el) {
         if (!isTextInput(el)) return false;
         if (!document.body.contains(el)) return false;
+        if (retiredInputs.has(el)) return false;
 
         const style = window.getComputedStyle(el);
         if (style.display === "none" || style.visibility === "hidden") return false;
@@ -898,6 +992,8 @@
       }
 
       function applyInputStyle(input, okWidth, bottom, lift) {
+        rememberOriginalStyle(input, originalInputStyles, positionedInputs);
+
         const transformValue = lift > 0
           ? "translate3d(0, -" + lift + "px, 0)"
           : "none";
@@ -939,6 +1035,8 @@
       }
 
       function applyOkButtonStyle(button, bottom, lift) {
+        rememberOriginalStyle(button, originalButtonStyles, positionedButtons);
+
         const transformValue = lift > 0
           ? "translate3d(0, -" + lift + "px, 0)"
           : "none";
@@ -1000,26 +1098,45 @@
       function releaseCredentialFormNativePreview(form) {
         if (!form) return;
 
-        const formOwnedActiveInput = !!(activeInput && form.contains(activeInput));
+        invalidateScheduledLayout();
 
-        if (formOwnedActiveInput) {
-          activeInput = null;
-          activeOkButton = null;
-        }
+        Array.from(positionedInputs).forEach(function (input) {
+          if (form.contains(input)) retirePositionedInput(input);
+        });
+        Array.from(positionedButtons).forEach(function (button) {
+          if (form.contains(button)) restorePositionedButton(button);
+        });
 
-        if (lastOkButton && form.contains(lastOkButton)) {
-          lastOkButton = null;
-        }
+        if (activeInput && form.contains(activeInput)) activeInput = null;
+        if (activeOkButton && form.contains(activeOkButton)) activeOkButton = null;
+        if (lastOkButton && form.contains(lastOkButton)) lastOkButton = null;
+      }
 
-        if (formOwnedActiveInput && positionLoopTimer) {
-          clearInterval(positionLoopTimer);
-          positionLoopTimer = null;
-        }
+      function resetForCredentialSession(form) {
+        invalidateScheduledLayout();
+
+        // A TMP-native element can still be painted above the keyboard when the
+        // credential helper takes over, especially after password -> username.
+        // Restore every preview to the WebGL input plugin's own style and retire
+        // it until a new, real focusin event explicitly starts another session.
+        Array.from(positionedInputs).forEach(retirePositionedInput);
+        Array.from(positionedButtons).forEach(restorePositionedButton);
+
+        activeInput = null;
+        activeOkButton = null;
+        lastOkButton = null;
+        lastKeyboardHeight = 0;
+        lockedInputBottom = 0;
+        keyboardSessionUntil = 0;
       }
 
       window.UnityNativeInputLayout = window.UnityNativeInputLayout || {};
       window.UnityNativeInputLayout.releaseCredentialForm =
         releaseCredentialFormNativePreview;
+      window.UnityNativeInputLayout.beginCredentialSession =
+        resetForCredentialSession;
+      window.UnityNativeInputLayout.completeCredentialSession =
+        resetForCredentialSession;
 
       function focusInputForAndroidMessenger(input) {
         if (!isAndroidFacebookInAppBrowser || !input) return;
@@ -1135,8 +1252,15 @@
         }
 
         const startedAt = Date.now();
+        const generation = layoutGeneration;
 
         positionLoopTimer = setInterval(function () {
+          if (generation !== layoutGeneration) {
+            clearInterval(positionLoopTimer);
+            positionLoopTimer = null;
+            return;
+          }
+
           const candidate = findCandidateInput() ||
             (isVisibleCandidateInput(input) ? input : null);
 
@@ -1156,6 +1280,20 @@
 
         if (!target) return;
 
+        if (activeInput && activeInput !== target) {
+          const previousInput = activeInput;
+          const previousButton = activeOkButton;
+
+          invalidateScheduledLayout();
+          retirePositionedInput(previousInput);
+          restorePositionedButton(previousButton);
+          activeInput = null;
+          activeOkButton = null;
+        }
+
+        retiredInputs.delete(target);
+        const generation = layoutGeneration;
+
         if (clearSessionTimer) {
           clearTimeout(clearSessionTimer);
           clearSessionTimer = null;
@@ -1169,50 +1307,50 @@
         if (isIPhoneSafariLike) {
           positionNativeInputAndUnityOkButton(target);
 
-          requestAnimationFrame(function () {
+          scheduleLayoutAnimationFrame(function () {
             positionNativeInputAndUnityOkButton(target);
-          });
+          }, generation);
 
-          setTimeout(function () {
+          scheduleLayoutTimeout(function () {
             positionNativeInputAndUnityOkButton(target);
-          }, 0);
+          }, 0, generation);
 
-          setTimeout(function () {
+          scheduleLayoutTimeout(function () {
             positionNativeInputAndUnityOkButton(target);
-          }, 16);
+          }, 16, generation);
 
-          setTimeout(function () {
+          scheduleLayoutTimeout(function () {
             positionNativeInputAndUnityOkButton(target);
-          }, 32);
+          }, 32, generation);
         }
 
-        requestAnimationFrame(function () {
+        scheduleLayoutAnimationFrame(function () {
           positionNativeInputAndUnityOkButton(target);
-        });
+        }, generation);
 
-        setTimeout(function () {
+        scheduleLayoutTimeout(function () {
           positionNativeInputAndUnityOkButton(target);
-        }, 50);
+        }, 50, generation);
 
-        setTimeout(function () {
+        scheduleLayoutTimeout(function () {
           positionNativeInputAndUnityOkButton(target);
-        }, 150);
+        }, 150, generation);
 
-        setTimeout(function () {
+        scheduleLayoutTimeout(function () {
           positionNativeInputAndUnityOkButton(target);
-        }, 300);
+        }, 300, generation);
 
-        setTimeout(function () {
+        scheduleLayoutTimeout(function () {
           positionNativeInputAndUnityOkButton(target);
-        }, 650);
+        }, 650, generation);
 
-        setTimeout(function () {
+        scheduleLayoutTimeout(function () {
           positionNativeInputAndUnityOkButton(findCandidateInput() || target);
-        }, 1100);
+        }, 1100, generation);
 
-        setTimeout(function () {
+        scheduleLayoutTimeout(function () {
           positionNativeInputAndUnityOkButton(findCandidateInput() || target);
-        }, 1800);
+        }, 1800, generation);
 
         startPositionLoop(target);
       }
@@ -1223,6 +1361,10 @@
         if (candidate) {
           schedulePosition(candidate);
         }
+      }
+
+      function scheduleScan(delay) {
+        scheduleLayoutTimeout(scheduleByScan, delay, layoutGeneration);
       }
 
       function immediateMessengerFocusFromUserGesture() {
@@ -1249,8 +1391,8 @@
           if (isTextInput(event.target)) {
             schedulePosition(event.target);
           } else {
-            setTimeout(scheduleByScan, 50);
-            setTimeout(scheduleByScan, 200);
+            scheduleScan(50);
+            scheduleScan(200);
           }
         },
         true
@@ -1264,9 +1406,9 @@
           if (isTextInput(event.target)) {
             schedulePosition(event.target);
           } else {
-            setTimeout(scheduleByScan, 80);
-            setTimeout(scheduleByScan, 250);
-            setTimeout(scheduleByScan, 500);
+            scheduleScan(80);
+            scheduleScan(250);
+            scheduleScan(500);
           }
         },
         true
@@ -1277,8 +1419,8 @@
         function () {
           lastUserGestureAt = Date.now();
 
-          setTimeout(scheduleByScan, 80);
-          setTimeout(scheduleByScan, 250);
+          scheduleScan(80);
+          scheduleScan(250);
         },
         true
       );
@@ -1288,9 +1430,9 @@
         function () {
           lastUserGestureAt = Date.now();
 
-          setTimeout(scheduleByScan, 30);
-          setTimeout(scheduleByScan, 160);
-          setTimeout(scheduleByScan, 360);
+          scheduleScan(30);
+          scheduleScan(160);
+          scheduleScan(360);
         },
         true
       );
@@ -1332,19 +1474,19 @@
         requestAnimationFrame(updatePosition);
         setTimeout(updatePosition, 100);
         setTimeout(updatePosition, 300);
-        setTimeout(scheduleByScan, 600);
+        scheduleScan(600);
       });
 
       if (window.visualViewport) {
         window.visualViewport.addEventListener("resize", function () {
           requestAnimationFrame(updatePosition);
-          setTimeout(scheduleByScan, 120);
-          setTimeout(scheduleByScan, 420);
+          scheduleScan(120);
+          scheduleScan(420);
         });
 
         window.visualViewport.addEventListener("scroll", function () {
           requestAnimationFrame(updatePosition);
-          setTimeout(scheduleByScan, 120);
+          scheduleScan(120);
         });
       }
 
@@ -1352,7 +1494,7 @@
         try {
           navigator.virtualKeyboard.addEventListener("geometrychange", function () {
             requestAnimationFrame(updatePosition);
-            setTimeout(scheduleByScan, 120);
+            scheduleScan(120);
           });
         } catch (e) { }
       }
@@ -1684,6 +1826,7 @@
       const USERNAME_ID = "username";
       const PASSWORD_ID = "current-password";
       const SUBMIT_ID = "unity-webgl-credential-submit";
+      const USERNAME_PROXY_ID = "unity-webgl-credential-username-proxy";
       const CREDENTIAL_ATTEMPT_TIMEOUT_MS = 12000;
       const AUTOFILL_SETTLE_MS = 250;
       const EAGER_AUTOFILL_GUARD_MS = 400;
@@ -1857,6 +2000,29 @@
         submit.textContent = "OK";
         submit.tabIndex = -1;
 
+        const usernameProxy = document.createElement("div");
+        usernameProxy.id = USERNAME_PROXY_ID;
+        usernameProxy.setAttribute("aria-hidden", "true");
+        usernameProxy.style.cssText =
+          "position:fixed;left:-10000px;top:0;width:1px;height:1px;" +
+          "z-index:2147483647;opacity:0.01;background:transparent;" +
+          "pointer-events:none;touch-action:auto;";
+
+        function handleUsernameProxyGesture(event) {
+          if (!isAndroidBrowser() || !loginState) return;
+
+          if (event.cancelable) event.preventDefault();
+          event.stopImmediatePropagation();
+          lastProtectedUsernameTouchAt = Date.now();
+          loginState.credentialUiInteractionSeen = true;
+          requestLoginForm();
+        }
+
+        usernameProxy.addEventListener("touchstart", handleUsernameProxyGesture, {
+          passive: false
+        });
+        usernameProxy.addEventListener("pointerdown", handleUsernameProxyGesture);
+
         const transparentInputStyle =
           "position:fixed;margin:0;padding:0;border:0;outline:0;" +
           "background:transparent;color:transparent;caret-color:transparent;" +
@@ -1885,6 +2051,10 @@
         username.addEventListener("focus", function () {
           if (!loginState) return;
 
+          // Reassert browser-input ownership every time. WebGLInput may have
+          // restored capture while the password TMP field owned the keyboard.
+          setCredentialHelperKeyboardOwnership(loginState, true);
+
           if (loginState.helperBlurredForCredentialUi) {
             scheduleReturnToTmpAfterCredentialUi();
           }
@@ -1902,6 +2072,7 @@
         form.appendChild(username);
         form.appendChild(password);
         form.appendChild(submit);
+        form.appendChild(usernameProxy);
 
         document.body.appendChild(form);
         setCredentialFormDormant(form);
@@ -2065,13 +2236,14 @@
           const passwordInput = document.getElementById(PASSWORD_ID);
           if (passwordInput && passwordInput.value) return;
 
-          // No credential pair arrived after Password Manager returned control.
-          // Restore the text TMP had before the helper opened and make TMP's own
-          // native input the active keyboard target.
-          handInputOwnershipBackToTmp({
-            text: returnState.lastMirroredUsername,
-            caretPosition: returnState.lastMirroredUsername.length
-          });
+          // Chrome exposes no explicit "none selected" callback. Keep the same
+          // helper session alive but park its painted preview back over the TMP
+          // username bounds. The next username tap is caught by the form-owned
+          // proxy, and typed changes continue to mirror into TMP without creating
+          // a competing TMP-native input.
+          returnState.helperBlurredForCredentialUi = false;
+          returnState.pageFocusWasLost = false;
+          parkActiveLoginFormPreview();
         }, CREDENTIAL_UI_RETURN_SETTLE_MS);
       }
 
@@ -2229,6 +2401,14 @@
         const completedState = loginState;
         completedState.lastMirroredUsername = username;
 
+        const completedForm = document.getElementById(FORM_ID);
+        if (
+          window.UnityNativeInputLayout &&
+          typeof window.UnityNativeInputLayout.completeCredentialSession === "function"
+        ) {
+          window.UnityNativeInputLayout.completeCredentialSession(completedForm);
+        }
+
         // Remove the helper before notifying Unity so it cannot steal focus or
         // keyboard events while TMP refreshes its visible fields.
         removeActiveLoginForm();
@@ -2343,6 +2523,36 @@
         submit.style.setProperty("box-shadow", "none", "important");
       }
 
+      function hideCredentialUsernameProxy(form) {
+        if (!form) return;
+
+        const proxy = form.querySelector("#" + USERNAME_PROXY_ID);
+        if (!proxy) return;
+
+        proxy.style.setProperty("left", "-10000px", "important");
+        proxy.style.setProperty("top", "0", "important");
+        proxy.style.setProperty("width", "1px", "important");
+        proxy.style.setProperty("height", "1px", "important");
+        proxy.style.setProperty("pointer-events", "none", "important");
+      }
+
+      function showCredentialUsernameProxy(form, state) {
+        if (!isAndroidBrowser() || !form || !state || !state.usernameBounds) {
+          hideCredentialUsernameProxy(form);
+          return;
+        }
+
+        const proxy = form.querySelector("#" + USERNAME_PROXY_ID);
+        if (!proxy) return;
+
+        setInputBounds(proxy, state.usernameBounds, true);
+        proxy.style.setProperty("z-index", "2147483647", "important");
+        proxy.style.setProperty("opacity", "0.01", "important");
+        proxy.style.setProperty("background", "transparent", "important");
+        proxy.style.setProperty("pointer-events", "auto", "important");
+        proxy.style.setProperty("touch-action", "auto", "important");
+      }
+
       function releaseCredentialSubmitForActiveForm(form) {
         if (!form) return;
 
@@ -2402,6 +2612,7 @@
         }
 
         hideCredentialSubmit(form);
+        hideCredentialUsernameProxy(form);
 
         if (form.contains(document.activeElement)) {
           try {
@@ -2457,6 +2668,7 @@
         }
 
         releaseCredentialSubmitForActiveForm(form);
+        showCredentialUsernameProxy(form, loginState || loginConfig);
       }
 
       function parkActiveLoginFormPreview() {
@@ -2475,6 +2687,7 @@
         usernameInput.style.setProperty("caret-color", "transparent", "important");
 
         hideCredentialSubmit(form);
+        showCredentialUsernameProxy(form, loginState);
         form.setAttribute("data-unity-credential-preview", "parked");
       }
 
@@ -2496,6 +2709,15 @@
           document.getElementById(PASSWORD_ID),
           layoutState.passwordBounds
         );
+
+        const form = document.getElementById(FORM_ID);
+        if (
+          form &&
+          loginState &&
+          form.getAttribute("data-unity-credential-active") === "true"
+        ) {
+          showCredentialUsernameProxy(form, loginState);
+        }
       }
 
       function configureLoginForm(options) {
@@ -2534,7 +2756,6 @@
 
       function setCredentialHelperKeyboardOwnership(state, helperOwnsKeyboard) {
         if (!state) return;
-        if (state.helperOwnsKeyboard === helperOwnsKeyboard) return;
 
         state.helperOwnsKeyboard = helperOwnsKeyboard;
 
@@ -2586,6 +2807,13 @@
         // from the selected account, so username-first mutations cannot be paired
         // with a stale password from the previous account.
         passwordInput.value = "";
+
+        if (
+          window.UnityNativeInputLayout &&
+          typeof window.UnityNativeInputLayout.beginCredentialSession === "function"
+        ) {
+          window.UnityNativeInputLayout.beginCredentialSession(form);
+        }
 
         loginState = {
           gameObjectName: loginConfig.gameObjectName,
