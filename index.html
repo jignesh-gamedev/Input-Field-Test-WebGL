@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.2'
+          'ServiceWorker.js?v=11.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.2";
+    const BUILD_VERSION = "11.3";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/bcfb304580e94a6fa4f152ad900e164c.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/2c0abb8cbdf848aba34a9dfa1533eadf.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/49b862c4603718f65ae355c6c8502dac.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/c29931b731b31a5b1655c3a22462b161.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/fa41f9820c7104d6f7a0b245c9d6769e.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/d9d81e28938f2ff2be6d2413c1dd1969.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/e3a01edf47fc702b0e3a59f5599aa3d3.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.2",
+      productVersion: "11.3",
       showBanner: unityShowBanner,
     };
 
@@ -1598,9 +1598,10 @@
     /*
       Google Password Manager form-autofill bridge for Unity WebGL.
 
-      JavaScript is armed with the TMP username bounds while keeping the DOM
-      untouched. A username tap creates one short-lived login form during the
-      trusted pointer event; success, dismissal, or timeout removes it again.
+      JavaScript preloads a dormant login form while the Unity login UI is
+      visible so Chrome can discover its autofill fields before the first tap.
+      The helper cannot receive focus or pointer input until a trusted username
+      interaction arms it, and it returns to that dormant state after use.
     */
     (function () {
       const FORM_ID = "unity-webgl-credential-form";
@@ -1771,7 +1772,7 @@
           "position:fixed;margin:0;padding:0;border:0;outline:0;" +
           "background:transparent;color:transparent;caret-color:transparent;" +
           "-webkit-text-fill-color:transparent;font-size:16px;line-height:normal;" +
-          "box-sizing:border-box;opacity:0.01;pointer-events:auto;touch-action:auto;";
+          "box-sizing:border-box;opacity:0.01;pointer-events:none;touch-action:auto;";
 
         username.style.cssText = transparentInputStyle;
         // The password control must exist for Chrome to recognize a login form,
@@ -1814,6 +1815,7 @@
         form.appendChild(submit);
 
         document.body.appendChild(form);
+        setCredentialFormDormant(form);
         return form;
       }
 
@@ -2114,6 +2116,7 @@
         ) return;
 
         const completedState = loginState;
+        completedState.lastMirroredUsername = username;
 
         // Remove the helper before notifying Unity so it cannot steal focus or
         // keyboard events while TMP refreshes its visible fields.
@@ -2138,23 +2141,75 @@
         input.style.height = Math.max(1, Math.round(bounds.height * canvasRect.height)) + "px";
       }
 
+      function setCredentialFormDormant(form) {
+        if (!form) return;
+
+        const usernameInput = form.querySelector("#" + USERNAME_ID);
+        const passwordInput = form.querySelector("#" + PASSWORD_ID);
+
+        form.setAttribute("data-unity-credential-active", "false");
+
+        if (usernameInput) {
+          usernameInput.tabIndex = -1;
+          usernameInput.style.setProperty("pointer-events", "none", "important");
+          usernameInput.style.setProperty("opacity", "0.01", "important");
+          usernameInput.style.setProperty("background", "transparent", "important");
+          usernameInput.style.setProperty("color", "transparent", "important");
+          usernameInput.style.setProperty("caret-color", "transparent", "important");
+          usernameInput.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+        }
+
+        if (passwordInput) {
+          passwordInput.tabIndex = -1;
+          passwordInput.style.setProperty("pointer-events", "none", "important");
+        }
+
+        if (form.contains(document.activeElement)) {
+          try {
+            document.activeElement.blur();
+          } catch (_) { }
+        }
+
+        // Never leave an autofilled password in the idle DOM. The next trusted
+        // request starts from a clean pair and Chrome supplies the selected one.
+        if (usernameInput) usernameInput.value = "";
+        if (passwordInput) passwordInput.value = "";
+      }
+
+      function armCredentialForm(form) {
+        if (!form) return;
+
+        const usernameInput = form.querySelector("#" + USERNAME_ID);
+        form.setAttribute("data-unity-credential-active", "true");
+
+        if (usernameInput) {
+          usernameInput.tabIndex = 0;
+          usernameInput.style.setProperty("pointer-events", "auto", "important");
+        }
+      }
+
       function applyLoginFormLayout() {
-        if (!loginState) return;
+        const layoutState = loginState || loginConfig;
+        if (!layoutState) return;
 
         setInputBounds(
           document.getElementById(USERNAME_ID),
-          loginState.usernameBounds
+          layoutState.usernameBounds
         );
 
         setInputBounds(
           document.getElementById(PASSWORD_ID),
-          loginState.passwordBounds
+          layoutState.passwordBounds
         );
       }
 
       function configureLoginForm(options) {
-        // Arming/updating bounds never creates DOM controls.
+        // Preload the real form while the Unity login UI is visible. Keeping it
+        // connected before the first trusted tap gives Chrome time to register
+        // the username/current-password pair with Password Manager.
         loginConfig = options;
+
+        const form = ensureCredentialForm();
 
         if (loginState) {
           loginState.gameObjectName = options.gameObjectName;
@@ -2164,8 +2219,11 @@
           loginState.focusRestoreCallbackMethodName = options.focusRestoreCallbackMethodName;
           loginState.usernameBounds = options.usernameBounds;
           loginState.passwordBounds = options.passwordBounds;
-          applyLoginFormLayout();
+        } else {
+          setCredentialFormDormant(form);
         }
+
+        applyLoginFormLayout();
       }
 
       function focusCredentialUsername() {
@@ -2222,6 +2280,7 @@
         };
 
         form.style.display = "block";
+        armCredentialForm(form);
         applyLoginFormLayout();
 
         pollTimer = setInterval(function () {
@@ -2271,15 +2330,32 @@
         }
         lastCredentialAnimationFrameAt = 0;
 
+        const completedState = loginState;
         loginState = null;
 
+        if (
+          completedState &&
+          loginConfig &&
+          typeof completedState.lastMirroredUsername === "string"
+        ) {
+          loginConfig.username = completedState.lastMirroredUsername;
+        }
+
         const form = document.getElementById(FORM_ID);
-        if (form) form.remove();
+        if (!form) return;
+
+        if (loginConfig) {
+          // The Unity login UI is still visible. Leave the already-discovered
+          // form connected, but make it unable to intercept TMP interaction.
+          setCredentialFormDormant(form);
+        } else {
+          form.remove();
+        }
       }
 
       function removeLoginForm() {
-        removeActiveLoginForm();
         loginConfig = null;
+        removeActiveLoginForm();
       }
 
       window.UnityCredentialAutofill = {
@@ -2322,8 +2398,8 @@
         rememberTmpNativeInput(event.target);
         if (!loginState || !loginState.handoffPending) return;
 
-        // TMP's native input now owns focus. Removing the helper at this point
-        // cannot create the focus gap that previously dismissed the keyboard.
+        // TMP's native input now owns focus. Dormant the helper at this point;
+        // it stays preloaded but can no longer intercept any TMP interaction.
         removeActiveLoginForm();
       }, true);
 
