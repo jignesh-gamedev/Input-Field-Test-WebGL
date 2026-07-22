@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.4'
+          'ServiceWorker.js?v=11.5'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.4";
+    const BUILD_VERSION = "11.5";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/2c0abb8cbdf848aba34a9dfa1533eadf.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/e103b3d2df07db182b12f9cf876b4304.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/c75a198cf253134a36a64ccf2dc407dc.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/0752fb20b9d102ad167024843e4c652f.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/fa41f9820c7104d6f7a0b245c9d6769e.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/391a2811584465179f8af06beb41e651.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/e3a01edf47fc702b0e3a59f5599aa3d3.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/ae91f3f632467b657bd1df9361d55ea6.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.4",
+      productVersion: "11.5",
       showBanner: unityShowBanner,
     };
 
@@ -599,11 +599,20 @@
       function isPossibleOkButton(el) {
         if (!el) return false;
 
-        // The credential form has its own semantic submit control so Chrome
-        // recognizes a complete login form. It is never Unity's mobile OK
-        // button and must not be promoted into the visible native-input bar.
-        if (el.hasAttribute && el.hasAttribute("data-unity-credential-submit")) {
-          return false;
+        if (el.id === "unity-webgl-credential-submit") {
+          const credentialForm = el.parentElement;
+          const focusedInput = document.activeElement;
+
+          // The credential OK control belongs only to the actively focused
+          // credential helper. Never reuse it for TMP/WebGLInput's native field
+          // while the credential form is dormant or merely parked.
+          if (
+            !credentialForm ||
+            credentialForm.getAttribute("data-unity-credential-active") !== "true" ||
+            !focusedInput ||
+            !focusedInput.getAttribute ||
+            focusedInput.getAttribute("data-unity-credential-helper") !== "username"
+          ) return false;
         }
 
         const tag = el.tagName ? el.tagName.toLowerCase() : "";
@@ -818,8 +827,8 @@
 
         if (
           lastOkButton &&
-          lastOkButton.hasAttribute &&
-          lastOkButton.hasAttribute("data-unity-credential-submit")
+          lastOkButton.id === "unity-webgl-credential-submit" &&
+          !isPossibleOkButton(lastOkButton)
         ) {
           lastOkButton = null;
         }
@@ -837,14 +846,7 @@
           }
         }
 
-        const allButtons = Array.from(
-          document.querySelectorAll("button, input[type='button'], input[type='submit']")
-        ).filter(function (button) {
-          return !(
-            button.hasAttribute &&
-            button.hasAttribute("data-unity-credential-submit")
-          );
-        });
+        const allButtons = document.querySelectorAll("button, input[type='button'], input[type='submit']");
 
         for (const el of allButtons) {
           if (isPossibleOkButton(el)) {
@@ -1019,10 +1021,20 @@
         // back to zero. The helper remains focused and in the DOM.
         if (
           isCredentialUsernameHelper(targetInput) &&
-          lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD &&
           getRawKeyboardHeight() <= KEYBOARD_OPEN_THRESHOLD
         ) {
           hideCredentialHelperPreview(targetInput, activeOkButton);
+
+          // Keep the active helper focused for Password Manager, but return its
+          // invisible hit target to the TMP username bounds. This prevents the
+          // stale above-keyboard preview and lets the next real tap reach the
+          // credential helper directly after the bottom sheet closes.
+          if (
+            window.UnityCredentialAutofill &&
+            typeof window.UnityCredentialAutofill.parkActiveLoginFormPreview === "function"
+          ) {
+            window.UnityCredentialAutofill.parkActiveLoginFormPreview();
+          }
 
           setTimeout(function () {
             isApplyingStyles = false;
@@ -1659,6 +1671,7 @@
           configureLoginForm: function () { },
           removeLoginForm: function () { },
           requestLoginForm: function () { },
+          parkActiveLoginFormPreview: function () { },
           saveCredentials: function () { }
         };
       }
@@ -1790,9 +1803,8 @@
         const submit = document.createElement("button");
         submit.id = SUBMIT_ID;
         submit.type = "submit";
-        submit.textContent = "Sign in";
+        submit.textContent = "OK";
         submit.tabIndex = -1;
-        submit.setAttribute("data-unity-credential-submit", "true");
 
         const transparentInputStyle =
           "position:fixed;margin:0;padding:0;border:0;outline:0;" +
@@ -2157,15 +2169,38 @@
         );
       }
 
-      function setInputBounds(input, bounds) {
+      function setInputBounds(input, bounds, resetNativeLayout) {
         const canvas = document.getElementById("unity-canvas");
-        if (!canvas || !bounds) return;
+        if (!canvas || !input || !bounds) return;
 
         const canvasRect = canvas.getBoundingClientRect();
-        input.style.left = Math.round(canvasRect.left + bounds.left * canvasRect.width) + "px";
-        input.style.top = Math.round(canvasRect.top + bounds.top * canvasRect.height) + "px";
-        input.style.width = Math.max(1, Math.round(bounds.width * canvasRect.width)) + "px";
-        input.style.height = Math.max(1, Math.round(bounds.height * canvasRect.height)) + "px";
+        const priority = resetNativeLayout ? "important" : "";
+
+        input.style.setProperty("left", Math.round(canvasRect.left + bounds.left * canvasRect.width) + "px", priority);
+        input.style.setProperty("top", Math.round(canvasRect.top + bounds.top * canvasRect.height) + "px", priority);
+        input.style.setProperty("width", Math.max(1, Math.round(bounds.width * canvasRect.width)) + "px", priority);
+        input.style.setProperty("height", Math.max(1, Math.round(bounds.height * canvasRect.height)) + "px", priority);
+
+        if (!resetNativeLayout) return;
+
+        // The mobile preview code moves the focused helper above the keyboard.
+        // Reset every conflicting property when it becomes dormant or parked so
+        // its next touch target is the real TMP username rectangle again.
+        input.style.setProperty("position", "fixed", "important");
+        input.style.setProperty("right", "auto", "important");
+        input.style.setProperty("bottom", "auto", "important");
+        input.style.setProperty("min-height", "0", "important");
+        input.style.setProperty("margin", "0", "important");
+        input.style.setProperty("padding", "0", "important");
+        input.style.setProperty("border", "0", "important");
+        input.style.setProperty("border-radius", "0", "important");
+        input.style.setProperty("outline", "0", "important");
+        input.style.setProperty("box-sizing", "border-box", "important");
+        input.style.setProperty("transform", "none", "important");
+        input.style.setProperty("-webkit-transform", "none", "important");
+        input.style.setProperty("will-change", "auto", "important");
+        input.style.setProperty("display", "block", "important");
+        input.style.setProperty("visibility", "visible", "important");
       }
 
       function hideCredentialSubmit(form) {
@@ -2174,9 +2209,8 @@
         const submit = form.querySelector("#" + SUBMIT_ID);
         if (!submit) return;
 
-        // The generic mobile native-input layout can otherwise mistake this
-        // semantic form submit for Unity's OK button and paint "Sign In" beside
-        // the keyboard. Keep it present for form semantics but never visible.
+        // Keep the credential OK accessory present for form semantics, but do
+        // not paint it while the helper is dormant or parked over TMP.
         submit.style.setProperty("position", "fixed", "important");
         submit.style.setProperty("left", "-10000px", "important");
         submit.style.setProperty("right", "auto", "important");
@@ -2197,6 +2231,20 @@
         submit.style.setProperty("box-shadow", "none", "important");
       }
 
+      function releaseCredentialSubmitForActiveForm(form) {
+        if (!form) return;
+
+        const submit = form.querySelector("#" + SUBMIT_ID);
+        if (!submit) return;
+
+        // Clear dormant !important rules. The mobile native-input layout will
+        // promote this semantic OK control beside the focused helper only while
+        // the keyboard is open.
+        submit.style.cssText =
+          "position:fixed;left:-10000px;top:0;width:1px;height:1px;" +
+          "margin:0;padding:0;border:0;opacity:0;pointer-events:none;";
+      }
+
       function setCredentialFormDormant(form) {
         if (!form) return;
 
@@ -2204,6 +2252,12 @@
         const passwordInput = form.querySelector("#" + PASSWORD_ID);
 
         form.setAttribute("data-unity-credential-active", "false");
+        form.setAttribute("data-unity-credential-preview", "dormant");
+
+        if (loginConfig) {
+          setInputBounds(usernameInput, loginConfig.usernameBounds, true);
+          setInputBounds(passwordInput, loginConfig.passwordBounds, true);
+        }
 
         if (usernameInput) {
           usernameInput.tabIndex = -1;
@@ -2247,6 +2301,7 @@
 
         const usernameInput = form.querySelector("#" + USERNAME_ID);
         form.setAttribute("data-unity-credential-active", "primed");
+        form.setAttribute("data-unity-credential-preview", "dormant");
 
         if (usernameInput) {
           // Priming changes only hit testing. Hover/pointerover never focuses
@@ -2263,13 +2318,45 @@
 
         const usernameInput = form.querySelector("#" + USERNAME_ID);
         form.setAttribute("data-unity-credential-active", "true");
+        form.setAttribute("data-unity-credential-preview", "active");
 
         if (usernameInput) {
           usernameInput.tabIndex = 0;
           usernameInput.style.setProperty("pointer-events", "auto", "important");
+
+          if (!isAndroidBrowser()) {
+            // The browser helper is the real first-click target on desktop.
+            // Keep its glyphs transparent so TMP remains the visible text, but
+            // expose the browser caret/selection and allow normal editing.
+            usernameInput.style.setProperty("opacity", "1", "important");
+            usernameInput.style.setProperty("background", "transparent", "important");
+            usernameInput.style.setProperty("color", "transparent", "important");
+            usernameInput.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+            usernameInput.style.setProperty("caret-color", "#000000", "important");
+            usernameInput.style.setProperty("user-select", "text", "important");
+          }
         }
 
+        releaseCredentialSubmitForActiveForm(form);
+      }
+
+      function parkActiveLoginFormPreview() {
+        if (!isAndroidBrowser() || !loginState) return;
+
+        const form = document.getElementById(FORM_ID);
+        const usernameInput = document.getElementById(USERNAME_ID);
+        if (!form || !usernameInput) return;
+
+        setInputBounds(usernameInput, loginState.usernameBounds, true);
+        usernameInput.style.setProperty("opacity", "0.01", "important");
+        usernameInput.style.setProperty("pointer-events", "auto", "important");
+        usernameInput.style.setProperty("background", "transparent", "important");
+        usernameInput.style.setProperty("color", "transparent", "important");
+        usernameInput.style.setProperty("-webkit-text-fill-color", "transparent", "important");
+        usernameInput.style.setProperty("caret-color", "transparent", "important");
+
         hideCredentialSubmit(form);
+        form.setAttribute("data-unity-credential-preview", "parked");
       }
 
       function applyLoginFormLayout() {
@@ -2301,13 +2388,41 @@
           loginState.closedCallbackMethodName = options.closedCallbackMethodName;
           loginState.manualInputCallbackMethodName = options.manualInputCallbackMethodName;
           loginState.focusRestoreCallbackMethodName = options.focusRestoreCallbackMethodName;
+          loginState.helperFocusCallbackMethodName = options.helperFocusCallbackMethodName;
           loginState.usernameBounds = options.usernameBounds;
           loginState.passwordBounds = options.passwordBounds;
+
+          const usernameInput = document.getElementById(USERNAME_ID);
+          if (usernameInput && document.activeElement !== usernameInput) {
+            usernameInput.value = options.username || "";
+            loginState.lastMirroredUsername = usernameInput.value;
+            loginState.lastObservedPairKey = usernameInput.value + "\u0000";
+            loginState.lastMutationAt = Date.now();
+          }
         } else {
           setCredentialFormDormant(form);
         }
 
         applyLoginFormLayout();
+      }
+
+      function setDesktopHelperKeyboardOwnership(state, helperOwnsKeyboard) {
+        if (!state || isAndroidBrowser()) return;
+        if (state.desktopHelperOwnsKeyboard === helperOwnsKeyboard) return;
+
+        state.desktopHelperOwnsKeyboard = helperOwnsKeyboard;
+
+        if (
+          !window.unityInstance ||
+          !state.gameObjectName ||
+          !state.helperFocusCallbackMethodName
+        ) return;
+
+        window.unityInstance.SendMessage(
+          state.gameObjectName,
+          state.helperFocusCallbackMethodName,
+          helperOwnsKeyboard ? "1" : "0"
+        );
       }
 
       function focusCredentialUsername() {
@@ -2348,6 +2463,7 @@
           closedCallbackMethodName: loginConfig.closedCallbackMethodName,
           manualInputCallbackMethodName: loginConfig.manualInputCallbackMethodName,
           focusRestoreCallbackMethodName: loginConfig.focusRestoreCallbackMethodName,
+          helperFocusCallbackMethodName: loginConfig.helperFocusCallbackMethodName,
           usernameBounds: loginConfig.usernameBounds,
           passwordBounds: loginConfig.passwordBounds,
           openedAt: now,
@@ -2360,10 +2476,12 @@
           tmpNativeInput: lastTmpNativeInput,
           credentialUiInteractionSeen: false,
           helperBlurredForCredentialUi: false,
-          pageFocusWasLost: false
+          pageFocusWasLost: false,
+          desktopHelperOwnsKeyboard: false
         };
 
         form.style.display = "block";
+        setDesktopHelperKeyboardOwnership(loginState, true);
         armCredentialForm(form);
         applyLoginFormLayout();
 
@@ -2430,6 +2548,7 @@
         lastCredentialAnimationFrameAt = 0;
 
         const completedState = loginState;
+        setDesktopHelperKeyboardOwnership(completedState, false);
         loginState = null;
 
         if (
@@ -2461,6 +2580,7 @@
         configureLoginForm: configureLoginForm,
         removeLoginForm: removeLoginForm,
         requestLoginForm: requestLoginForm,
+        parkActiveLoginFormPreview: parkActiveLoginFormPreview,
 
         saveCredentials: async function (username, password) {
           username = (username || "").trim();
