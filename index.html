@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.6'
+          'ServiceWorker.js?v=11.7'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.6";
+    const BUILD_VERSION = "11.7";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/f2c0d8f793f532e95f2ca27dad3eecdb.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/78cad2dbbdd50258a7e3652f4daaabce.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/373092cf383482bebeba29264d7f445d.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/0a60cc182426942a638e8ce5c9c89c1e.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/15fe430b62dd4dde76618b07226dc81d.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/32b11d5069740cb71a294fb2123fa483.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/a708010a990d46311dbfef0c0b2f9af3.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.6",
+      productVersion: "11.7",
       showBanner: unityShowBanner,
     };
 
@@ -1699,6 +1699,7 @@
       let loginState = null;
       let loginConfig = null;
       let lastTmpNativeInput = null;
+      let lastProtectedUsernameTouchAt = 0;
 
       function isIOSBrowser() {
         return (
@@ -1791,8 +1792,17 @@
         const canvasRect = canvas.getBoundingClientRect();
         if (canvasRect.width <= 0 || canvasRect.height <= 0) return false;
 
-        const x = (event.clientX - canvasRect.left) / canvasRect.width;
-        const y = (event.clientY - canvasRect.top) / canvasRect.height;
+        const touch = event.touches && event.touches.length > 0
+          ? event.touches[0]
+          : (event.changedTouches && event.changedTouches.length > 0
+            ? event.changedTouches[0]
+            : null);
+        const clientX = touch ? touch.clientX : event.clientX;
+        const clientY = touch ? touch.clientY : event.clientY;
+        if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+
+        const x = (clientX - canvasRect.left) / canvasRect.width;
+        const y = (clientY - canvasRect.top) / canvasRect.height;
         const bounds = state.usernameBounds;
 
         return (
@@ -1939,6 +1949,12 @@
       function mirrorManualUsernameInputToUnity(event, input) {
         if (!loginState || loginState.handoffPending) return;
         if (!isManualUsernameInputEvent(event)) return;
+
+        mirrorUsernameValueToUnity(input);
+      }
+
+      function mirrorUsernameValueToUnity(input) {
+        if (!loginState || loginState.handoffPending || !input) return;
         if (
           !window.unityInstance ||
           !loginState.gameObjectName ||
@@ -1946,6 +1962,8 @@
         ) return;
 
         const text = input.value || "";
+        if (text === loginState.lastMirroredUsername) return;
+
         const caretPosition = Number.isFinite(input.selectionEnd)
           ? input.selectionEnd
           : text.length;
@@ -2157,6 +2175,14 @@
         const usernameInput = document.getElementById(USERNAME_ID);
         const passwordInput = document.getElementById(PASSWORD_ID);
         if (!usernameInput || !passwordInput) return;
+
+        // Some Android focus transitions (notably password TMP -> credential
+        // username) mutate the focused helper without delivering a usable input
+        // event to this listener. Poll the actual value while it owns focus so
+        // TMP always mirrors the complete username on that first helper session.
+        if (isAndroidBrowser() && document.activeElement === usernameInput) {
+          mirrorUsernameValueToUnity(usernameInput);
+        }
 
         const username = usernameInput.value;
         const password = passwordInput.value;
@@ -2728,12 +2754,51 @@
         if (form && form.contains(event.target)) return;
 
         rememberTmpNativeInput(event.target);
+
+        if (
+          loginState &&
+          !loginState.handoffPending &&
+          isAndroidBrowser() &&
+          Date.now() - lastProtectedUsernameTouchAt < 800
+        ) {
+          // Fallback for WebGL input implementations that create their native
+          // element from an earlier touch listener despite preventDefault().
+          // Blur that competing element and restore the already-active helper.
+          try {
+            event.target.blur();
+          } catch (_) { }
+          setTimeout(focusCredentialUsername, 0);
+          return;
+        }
+
         if (!loginState || !loginState.handoffPending) return;
 
         // TMP's native input now owns focus. Dormant the helper at this point;
         // it stays preloaded but can no longer intercept any TMP interaction.
         removeActiveLoginForm();
       }, true);
+
+      function keepAndroidCredentialHelperOnUsername(event) {
+        if (!loginConfig || !loginState || loginState.handoffPending) return false;
+        if (!isAndroidBrowser() || !pointerIsInsideUsername(event, loginConfig)) return false;
+
+        const form = document.getElementById(FORM_ID);
+        if (form && form.contains(event.target)) return false;
+
+        if (event.cancelable) event.preventDefault();
+        event.stopImmediatePropagation();
+        lastProtectedUsernameTouchAt = Date.now();
+        loginState.credentialUiInteractionSeen = true;
+        requestLoginForm();
+        return true;
+      }
+
+      // Unity's mobile input module listens to touch events as well as pointer
+      // events. Blocking pointerdown alone still allows its touchstart handler to
+      // create a competing TMP-native username input on the second tap.
+      document.addEventListener("touchstart", function (event) {
+        keepAndroidCredentialHelperOnUsername(event);
+      }, { capture: true, passive: false });
 
       // Interactions with either the helper input or Unity/TMP's native HTML
       // preview are never treated as outside-tap keyboard dismissal.
@@ -2742,24 +2807,7 @@
         if (event.button !== undefined && event.button !== 0) return;
 
         const form = document.getElementById(FORM_ID);
-
-        // While Chrome's username helper owns the Android keyboard, another tap
-        // on the visible TMP username rectangle must keep that helper session.
-        // Otherwise Unity creates its own native input underneath it and the two
-        // editing layers compete for subsequent keystrokes.
-        if (
-          loginState &&
-          !loginState.handoffPending &&
-          isAndroidBrowser() &&
-          pointerIsInsideUsername(event, loginConfig) &&
-          (!form || !form.contains(event.target))
-        ) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          loginState.credentialUiInteractionSeen = true;
-          requestLoginForm();
-          return;
-        }
+        if (keepAndroidCredentialHelperOnUsername(event)) return;
 
         if (isEditableTarget(event.target)) {
           if (form && form.contains(event.target)) {
