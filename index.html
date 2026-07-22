@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.3'
+          'ServiceWorker.js?v=11.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.3";
+    const BUILD_VERSION = "11.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/2c0abb8cbdf848aba34a9dfa1533eadf.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/c29931b731b31a5b1655c3a22462b161.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/c75a198cf253134a36a64ccf2dc407dc.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/fa41f9820c7104d6f7a0b245c9d6769e.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.3",
+      productVersion: "11.4",
       showBanner: unityShowBanner,
     };
 
@@ -599,6 +599,13 @@
       function isPossibleOkButton(el) {
         if (!el) return false;
 
+        // The credential form has its own semantic submit control so Chrome
+        // recognizes a complete login form. It is never Unity's mobile OK
+        // button and must not be promoted into the visible native-input bar.
+        if (el.hasAttribute && el.hasAttribute("data-unity-credential-submit")) {
+          return false;
+        }
+
         const tag = el.tagName ? el.tagName.toLowerCase() : "";
         const text = (el.innerText || el.value || el.textContent || "").trim().toLowerCase();
 
@@ -809,6 +816,14 @@
       function findUnityOkButton(input) {
         if (!input) return null;
 
+        if (
+          lastOkButton &&
+          lastOkButton.hasAttribute &&
+          lastOkButton.hasAttribute("data-unity-credential-submit")
+        ) {
+          lastOkButton = null;
+        }
+
         const parent = input.parentElement;
 
         if (parent) {
@@ -822,7 +837,14 @@
           }
         }
 
-        const allButtons = document.querySelectorAll("button, input[type='button'], input[type='submit']");
+        const allButtons = Array.from(
+          document.querySelectorAll("button, input[type='button'], input[type='submit']")
+        ).filter(function (button) {
+          return !(
+            button.hasAttribute &&
+            button.hasAttribute("data-unity-credential-submit")
+          );
+        });
 
         for (const el of allButtons) {
           if (isPossibleOkButton(el)) {
@@ -1600,13 +1622,15 @@
 
       JavaScript preloads a dormant login form while the Unity login UI is
       visible so Chrome can discover its autofill fields before the first tap.
-      The helper cannot receive focus or pointer input until a trusted username
-      interaction arms it, and it returns to that dormant state after use.
+      Android keeps the unfocused username helper hit-testable so the first real
+      touch targets Chrome's form control. Desktop primes hit testing on hover.
+      Both return to an unfocused, visually dormant state after each use.
     */
     (function () {
       const FORM_ID = "unity-webgl-credential-form";
       const USERNAME_ID = "username";
       const PASSWORD_ID = "current-password";
+      const SUBMIT_ID = "unity-webgl-credential-submit";
       const CREDENTIAL_ATTEMPT_TIMEOUT_MS = 12000;
       const AUTOFILL_SETTLE_MS = 250;
       const EAGER_AUTOFILL_GUARD_MS = 400;
@@ -1764,9 +1788,11 @@
         password.setAttribute("data-unity-credential-helper", "current-password");
 
         const submit = document.createElement("button");
+        submit.id = SUBMIT_ID;
         submit.type = "submit";
         submit.textContent = "Sign in";
         submit.tabIndex = -1;
+        submit.setAttribute("data-unity-credential-submit", "true");
 
         const transparentInputStyle =
           "position:fixed;margin:0;padding:0;border:0;outline:0;" +
@@ -1853,7 +1879,7 @@
       }
 
       function mirrorManualUsernameInputToUnity(event, input) {
-        if (!isAndroidBrowser() || !loginState || loginState.handoffPending) return;
+        if (!loginState || loginState.handoffPending) return;
         if (!isManualUsernameInputEvent(event)) return;
         if (
           !window.unityInstance ||
@@ -1866,8 +1892,9 @@
           ? input.selectionEnd
           : text.length;
 
-        // Keep Chrome's credential helper focused so keyboard suggestions keep
-        // filtering, but mirror its complete value into the visible TMP field.
+        // Keep Chrome's credential helper focused so its suggestions keep
+        // filtering, but mirror the complete value into the visible TMP field
+        // on both mobile and desktop when the real helper receives the tap.
         loginState.lastMirroredUsername = text;
         window.unityInstance.SendMessage(
           loginState.gameObjectName,
@@ -2141,6 +2168,35 @@
         input.style.height = Math.max(1, Math.round(bounds.height * canvasRect.height)) + "px";
       }
 
+      function hideCredentialSubmit(form) {
+        if (!form) return;
+
+        const submit = form.querySelector("#" + SUBMIT_ID);
+        if (!submit) return;
+
+        // The generic mobile native-input layout can otherwise mistake this
+        // semantic form submit for Unity's OK button and paint "Sign In" beside
+        // the keyboard. Keep it present for form semantics but never visible.
+        submit.style.setProperty("position", "fixed", "important");
+        submit.style.setProperty("left", "-10000px", "important");
+        submit.style.setProperty("right", "auto", "important");
+        submit.style.setProperty("top", "0", "important");
+        submit.style.setProperty("bottom", "auto", "important");
+        submit.style.setProperty("width", "1px", "important");
+        submit.style.setProperty("height", "1px", "important");
+        submit.style.setProperty("min-height", "0", "important");
+        submit.style.setProperty("z-index", "-1", "important");
+        submit.style.setProperty("display", "block", "important");
+        submit.style.setProperty("visibility", "hidden", "important");
+        submit.style.setProperty("opacity", "0", "important");
+        submit.style.setProperty("pointer-events", "none", "important");
+        submit.style.setProperty("transform", "none", "important");
+        submit.style.setProperty("-webkit-transform", "none", "important");
+        submit.style.setProperty("background", "transparent", "important");
+        submit.style.setProperty("border", "0", "important");
+        submit.style.setProperty("box-shadow", "none", "important");
+      }
+
       function setCredentialFormDormant(form) {
         if (!form) return;
 
@@ -2151,7 +2207,15 @@
 
         if (usernameInput) {
           usernameInput.tabIndex = -1;
-          usernameInput.style.setProperty("pointer-events", "none", "important");
+          // A touch browser can keep the original pointerover hit-test target
+          // for the immediately following pointerdown. Android therefore needs
+          // the dormant helper to be the real first-touch target. It remains
+          // transparent and unfocused, and its typing is mirrored into TMP.
+          usernameInput.style.setProperty(
+            "pointer-events",
+            isAndroidBrowser() ? "auto" : "none",
+            "important"
+          );
           usernameInput.style.setProperty("opacity", "0.01", "important");
           usernameInput.style.setProperty("background", "transparent", "important");
           usernameInput.style.setProperty("color", "transparent", "important");
@@ -2163,6 +2227,8 @@
           passwordInput.tabIndex = -1;
           passwordInput.style.setProperty("pointer-events", "none", "important");
         }
+
+        hideCredentialSubmit(form);
 
         if (form.contains(document.activeElement)) {
           try {
@@ -2176,6 +2242,22 @@
         if (passwordInput) passwordInput.value = "";
       }
 
+      function primeCredentialForm(form) {
+        if (!form || loginState) return;
+
+        const usernameInput = form.querySelector("#" + USERNAME_ID);
+        form.setAttribute("data-unity-credential-active", "primed");
+
+        if (usernameInput) {
+          // Priming changes only hit testing. Hover/pointerover never focuses
+          // the helper or opens Password Manager by itself.
+          usernameInput.tabIndex = -1;
+          usernameInput.style.setProperty("pointer-events", "auto", "important");
+        }
+
+        hideCredentialSubmit(form);
+      }
+
       function armCredentialForm(form) {
         if (!form) return;
 
@@ -2186,6 +2268,8 @@
           usernameInput.tabIndex = 0;
           usernameInput.style.setProperty("pointer-events", "auto", "important");
         }
+
+        hideCredentialSubmit(form);
       }
 
       function applyLoginFormLayout() {
@@ -2303,6 +2387,21 @@
         focusCredentialUsername();
       }
 
+      function updateCredentialPointerPrime(event) {
+        if (!loginConfig || loginState) return;
+
+        const form = document.getElementById(FORM_ID);
+        if (!form) return;
+
+        if (pointerIsInsideUsername(event, loginConfig)) {
+          primeCredentialForm(form);
+        } else if (
+          form.getAttribute("data-unity-credential-active") === "primed"
+        ) {
+          setCredentialFormDormant(form);
+        }
+      }
+
       function removeActiveLoginForm() {
         if (pollTimer) {
           clearInterval(pollTimer);
@@ -2389,6 +2488,13 @@
 
       window.addEventListener("resize", applyLoginFormLayout);
 
+      // A mouse produces pointerover while entering the TMP username bounds;
+      // a direct-touch device must produce pointerover before pointerdown. Prime
+      // only hit testing during that earlier event so the following real down
+      // event targets Chrome's already-discovered username control.
+      document.addEventListener("pointerover", updateCredentialPointerPrime, true);
+      document.addEventListener("pointermove", updateCredentialPointerPrime, true);
+
       document.addEventListener("focusin", function (event) {
         if (!isEditableTarget(event.target)) return;
 
@@ -2412,8 +2518,12 @@
         const form = document.getElementById(FORM_ID);
 
         if (isEditableTarget(event.target)) {
-          if (loginState && form && form.contains(event.target)) {
-            if (isAndroidBrowser()) {
+          if (form && form.contains(event.target)) {
+            if (!loginState && event.target.id === USERNAME_ID) {
+              requestLoginForm();
+            }
+
+            if (loginState && isAndroidBrowser()) {
               loginState.credentialUiInteractionSeen = true;
             }
             return;
