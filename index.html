@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.5'
+          'ServiceWorker.js?v=11.6'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.5";
+    const BUILD_VERSION = "11.6";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/e103b3d2df07db182b12f9cf876b4304.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/f2c0d8f793f532e95f2ca27dad3eecdb.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/0752fb20b9d102ad167024843e4c652f.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/373092cf383482bebeba29264d7f445d.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/391a2811584465179f8af06beb41e651.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/15fe430b62dd4dde76618b07226dc81d.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/ae91f3f632467b657bd1df9361d55ea6.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/32b11d5069740cb71a294fb2123fa483.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.5",
+      productVersion: "11.6",
       showBanner: unityShowBanner,
     };
 
@@ -534,11 +534,15 @@
 
       function isTextInput(el) {
         if (!el) return false;
-        if (
-          el.hasAttribute &&
-          el.hasAttribute("data-unity-credential-helper") &&
-          el !== document.activeElement
-        ) return false;
+
+        if (isCredentialHelper(el)) {
+          const credentialForm = el.parentElement;
+          if (
+            !credentialForm ||
+            credentialForm.getAttribute("data-unity-credential-active") !== "true" ||
+            el !== document.activeElement
+          ) return false;
+        }
 
         const tag = el.tagName ? el.tagName.toLowerCase() : "";
         if (tag !== "input" && tag !== "textarea") return false;
@@ -552,6 +556,14 @@
           type === "file" ||
           type === "submit" ||
           type === "button"
+        );
+      }
+
+      function isCredentialHelper(el) {
+        return !!(
+          el &&
+          el.hasAttribute &&
+          el.hasAttribute("data-unity-credential-helper")
         );
       }
 
@@ -985,6 +997,30 @@
         }
       }
 
+      function releaseCredentialFormNativePreview(form) {
+        if (!form) return;
+
+        const formOwnedActiveInput = !!(activeInput && form.contains(activeInput));
+
+        if (formOwnedActiveInput) {
+          activeInput = null;
+          activeOkButton = null;
+        }
+
+        if (lastOkButton && form.contains(lastOkButton)) {
+          lastOkButton = null;
+        }
+
+        if (formOwnedActiveInput && positionLoopTimer) {
+          clearInterval(positionLoopTimer);
+          positionLoopTimer = null;
+        }
+      }
+
+      window.UnityNativeInputLayout = window.UnityNativeInputLayout || {};
+      window.UnityNativeInputLayout.releaseCredentialForm =
+        releaseCredentialFormNativePreview;
+
       function focusInputForAndroidMessenger(input) {
         if (!isAndroidFacebookInAppBrowser || !input) return;
 
@@ -1002,6 +1038,10 @@
       }
 
       function positionNativeInputAndUnityOkButton(input) {
+        // A queued positioning callback must never resurrect a credential helper
+        // after its form has become dormant following autofill or dismissal.
+        if (isCredentialHelper(input) && !isTextInput(input)) return;
+
         const targetInput = isTextInput(input) ? input : findCandidateInput();
 
         if (!targetInput) return;
@@ -1097,7 +1137,8 @@
         const startedAt = Date.now();
 
         positionLoopTimer = setInterval(function () {
-          const candidate = findCandidateInput() || input;
+          const candidate = findCandidateInput() ||
+            (isVisibleCandidateInput(input) ? input : null);
 
           if (candidate && document.body.contains(candidate)) {
             positionNativeInputAndUnityOkButton(candidate);
@@ -1877,6 +1918,11 @@
       function isManualUsernameInputEvent(event) {
         if (!event.isTrusted) return false;
 
+        // Android keyboards do not consistently populate InputEvent.inputType,
+        // especially when focus moved from TMP's password input to this helper.
+        // Every trusted username mutation must remain visible in TMP.
+        if (isAndroidBrowser()) return true;
+
         return (
           event.inputType === "insertText" ||
           event.inputType === "insertCompositionText" ||
@@ -2203,6 +2249,46 @@
         input.style.setProperty("visibility", "visible", "important");
       }
 
+      function applyDesktopUsernameTextMetrics(input, state) {
+        if (isAndroidBrowser() || !input || !state) return;
+        if (!state.usernameBounds || !state.usernameTextBounds) return;
+
+        const canvas = document.getElementById("unity-canvas");
+        if (!canvas) return;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        const outer = state.usernameBounds;
+        const text = state.usernameTextBounds;
+        const paddingLeft = Math.max(0, (text.left - outer.left) * canvasRect.width);
+        const paddingRight = Math.max(
+          0,
+          (outer.left + outer.width - text.left - text.width) * canvasRect.width
+        );
+        const paddingTop = Math.max(0, (text.top - outer.top) * canvasRect.height);
+        const paddingBottom = Math.max(
+          0,
+          (outer.top + outer.height - text.top - text.height) * canvasRect.height
+        );
+        const textHeight = Math.max(1, text.height * canvasRect.height);
+        const configuredFontSize = (state.usernameFontSize || 0) * canvasRect.height;
+        const fontSize = Math.max(
+          16,
+          configuredFontSize > 0 ? configuredFontSize : textHeight * 0.65
+        );
+
+        // TMP text stays visible; these metrics align only Chrome's transparent
+        // editing layer, caret, and selection with TMP's real viewport/font.
+        input.style.setProperty(
+          "padding",
+          paddingTop + "px " + paddingRight + "px " +
+            paddingBottom + "px " + paddingLeft + "px",
+          "important"
+        );
+        input.style.setProperty("font-size", fontSize + "px", "important");
+        input.style.setProperty("line-height", textHeight + "px", "important");
+        input.style.setProperty("box-sizing", "border-box", "important");
+      }
+
       function hideCredentialSubmit(form) {
         if (!form) return;
 
@@ -2253,6 +2339,13 @@
 
         form.setAttribute("data-unity-credential-active", "false");
         form.setAttribute("data-unity-credential-preview", "dormant");
+
+        if (
+          window.UnityNativeInputLayout &&
+          typeof window.UnityNativeInputLayout.releaseCredentialForm === "function"
+        ) {
+          window.UnityNativeInputLayout.releaseCredentialForm(form);
+        }
 
         if (loginConfig) {
           setInputBounds(usernameInput, loginConfig.usernameBounds, true);
@@ -2368,6 +2461,11 @@
           layoutState.usernameBounds
         );
 
+        applyDesktopUsernameTextMetrics(
+          document.getElementById(USERNAME_ID),
+          layoutState
+        );
+
         setInputBounds(
           document.getElementById(PASSWORD_ID),
           layoutState.passwordBounds
@@ -2390,6 +2488,8 @@
           loginState.focusRestoreCallbackMethodName = options.focusRestoreCallbackMethodName;
           loginState.helperFocusCallbackMethodName = options.helperFocusCallbackMethodName;
           loginState.usernameBounds = options.usernameBounds;
+          loginState.usernameTextBounds = options.usernameTextBounds;
+          loginState.usernameFontSize = options.usernameFontSize;
           loginState.passwordBounds = options.passwordBounds;
 
           const usernameInput = document.getElementById(USERNAME_ID);
@@ -2406,11 +2506,11 @@
         applyLoginFormLayout();
       }
 
-      function setDesktopHelperKeyboardOwnership(state, helperOwnsKeyboard) {
-        if (!state || isAndroidBrowser()) return;
-        if (state.desktopHelperOwnsKeyboard === helperOwnsKeyboard) return;
+      function setCredentialHelperKeyboardOwnership(state, helperOwnsKeyboard) {
+        if (!state) return;
+        if (state.helperOwnsKeyboard === helperOwnsKeyboard) return;
 
-        state.desktopHelperOwnsKeyboard = helperOwnsKeyboard;
+        state.helperOwnsKeyboard = helperOwnsKeyboard;
 
         if (
           !window.unityInstance ||
@@ -2441,6 +2541,10 @@
         if (!loginConfig) return;
 
         if (loginState) {
+          const activeForm = ensureCredentialForm();
+          setCredentialHelperKeyboardOwnership(loginState, true);
+          armCredentialForm(activeForm);
+          applyLoginFormLayout();
           focusCredentialUsername();
           return;
         }
@@ -2465,6 +2569,8 @@
           focusRestoreCallbackMethodName: loginConfig.focusRestoreCallbackMethodName,
           helperFocusCallbackMethodName: loginConfig.helperFocusCallbackMethodName,
           usernameBounds: loginConfig.usernameBounds,
+          usernameTextBounds: loginConfig.usernameTextBounds,
+          usernameFontSize: loginConfig.usernameFontSize,
           passwordBounds: loginConfig.passwordBounds,
           openedAt: now,
           lastObservedPairKey: usernameInput.value + "\u0000",
@@ -2477,11 +2583,11 @@
           credentialUiInteractionSeen: false,
           helperBlurredForCredentialUi: false,
           pageFocusWasLost: false,
-          desktopHelperOwnsKeyboard: false
+          helperOwnsKeyboard: false
         };
 
         form.style.display = "block";
-        setDesktopHelperKeyboardOwnership(loginState, true);
+        setCredentialHelperKeyboardOwnership(loginState, true);
         armCredentialForm(form);
         applyLoginFormLayout();
 
@@ -2548,7 +2654,7 @@
         lastCredentialAnimationFrameAt = 0;
 
         const completedState = loginState;
-        setDesktopHelperKeyboardOwnership(completedState, false);
+        setCredentialHelperKeyboardOwnership(completedState, false);
         loginState = null;
 
         if (
@@ -2636,6 +2742,24 @@
         if (event.button !== undefined && event.button !== 0) return;
 
         const form = document.getElementById(FORM_ID);
+
+        // While Chrome's username helper owns the Android keyboard, another tap
+        // on the visible TMP username rectangle must keep that helper session.
+        // Otherwise Unity creates its own native input underneath it and the two
+        // editing layers compete for subsequent keystrokes.
+        if (
+          loginState &&
+          !loginState.handoffPending &&
+          isAndroidBrowser() &&
+          pointerIsInsideUsername(event, loginConfig) &&
+          (!form || !form.contains(event.target))
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          loginState.credentialUiInteractionSeen = true;
+          requestLoginForm();
+          return;
+        }
 
         if (isEditableTarget(event.target)) {
           if (form && form.contains(event.target)) {
