@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=12.7'
+          'ServiceWorker.js?v=12.8'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "12.7";
+    const BUILD_VERSION = "12.8";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/8ea23ce5058190290ccb8f91413d42f6.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/470da9809e140469a50ae1d1c018648c.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "12.7",
+      productVersion: "12.8",
       showBanner: unityShowBanner,
     };
 
@@ -530,6 +530,7 @@
       let chromeCredentialHandoffTimer = null;
       let chromeCredentialHandoffTarget = null;
       let chromeCredentialHandoffTargetWasFocused = false;
+      let chromeCredentialHandoffRevealClickSent = false;
 
       function isInstalledWebApp() {
         return (
@@ -837,6 +838,7 @@
         chromeCredentialHandoffLastHeight = -1;
         chromeCredentialHandoffTarget = null;
         chromeCredentialHandoffTargetWasFocused = false;
+        chromeCredentialHandoffRevealClickSent = false;
 
         if (clearCache) {
           lastKeyboardHeight = 0;
@@ -857,6 +859,7 @@
             : null;
         chromeCredentialHandoffTargetWasFocused =
           chromeCredentialHandoffTarget === document.activeElement;
+        chromeCredentialHandoffRevealClickSent = false;
         chromeCredentialHandoffStartedAt = startedAt;
         chromeCredentialHandoffUntil =
           startedAt + ANDROID_CHROME_HANDOFF_MAX_ACTIVE_MS;
@@ -1572,6 +1575,28 @@
         }
       }
 
+      function revealChromeCredentialHandoffTarget(input) {
+        if (
+          !isChromeCredentialHandoffRecomputing() ||
+          !chromeCredentialHandoffTarget ||
+          input !== chromeCredentialHandoffTarget ||
+          chromeCredentialHandoffRevealClickSent
+        ) return;
+
+        chromeCredentialHandoffRevealClickSent = true;
+
+        // The helper receives its first native focus while it still covers the
+        // TMP username bounds. Position it before asking Chrome to reveal the
+        // focused control again; otherwise the credential accessory row can
+        // cover the preview until a second physical tap performs this pass.
+        positionNativeInputAndUnityOkButton(input);
+        input.getBoundingClientRect();
+
+        try {
+          input.click();
+        } catch (_) { }
+      }
+
       function scheduleScan(delay) {
         scheduleLayoutTimeout(scheduleByScan, delay, layoutGeneration);
       }
@@ -1599,6 +1624,7 @@
         function (event) {
           if (isTextInput(event.target)) {
             schedulePosition(event.target);
+            revealChromeCredentialHandoffTarget(event.target);
           } else {
             scheduleScan(50);
             scheduleScan(200);
