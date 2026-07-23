@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=12.6'
+          'ServiceWorker.js?v=12.7'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "12.6";
+    const BUILD_VERSION = "12.7";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/87775e60b014fbdc238958e4ea09c3f0.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/8ea23ce5058190290ccb8f91413d42f6.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "12.6",
+      productVersion: "12.7",
       showBanner: unityShowBanner,
     };
 
@@ -528,6 +528,8 @@
       let chromeCredentialHandoffStableSince = 0;
       let chromeCredentialHandoffLastHeight = -1;
       let chromeCredentialHandoffTimer = null;
+      let chromeCredentialHandoffTarget = null;
+      let chromeCredentialHandoffTargetWasFocused = false;
 
       function isInstalledWebApp() {
         return (
@@ -690,6 +692,36 @@
       }
 
       function findCandidateInput() {
+        // During password -> credential-username ownership transfer Chrome can
+        // temporarily move DOM focus into its suggestion UI. Continue following
+        // the helper that received the trusted tap instead of falling back to the
+        // retiring TMP password input. Requiring one observed helper focus keeps
+        // a merely dormant credential form from becoming a layout candidate.
+        if (chromeCredentialHandoffTarget) {
+          if (document.activeElement === chromeCredentialHandoffTarget) {
+            chromeCredentialHandoffTargetWasFocused = true;
+          }
+
+          if (
+            chromeCredentialHandoffTargetWasFocused &&
+            document.body.contains(chromeCredentialHandoffTarget) &&
+            !retiredInputs.has(chromeCredentialHandoffTarget)
+          ) {
+            const targetForm = chromeCredentialHandoffTarget.parentElement;
+            const targetStyle = window.getComputedStyle(
+              chromeCredentialHandoffTarget
+            );
+            if (
+              targetForm &&
+              targetForm.getAttribute("data-unity-credential-active") === "true" &&
+              targetStyle.display !== "none" &&
+              targetStyle.visibility !== "hidden"
+            ) {
+              return chromeCredentialHandoffTarget;
+            }
+          }
+        }
+
         if (isVisibleCandidateInput(document.activeElement)) {
           return document.activeElement;
         }
@@ -803,6 +835,8 @@
         chromeCredentialHandoffUntil = 0;
         chromeCredentialHandoffStableSince = 0;
         chromeCredentialHandoffLastHeight = -1;
+        chromeCredentialHandoffTarget = null;
+        chromeCredentialHandoffTargetWasFocused = false;
 
         if (clearCache) {
           lastKeyboardHeight = 0;
@@ -811,12 +845,18 @@
         }
       }
 
-      function startChromeCredentialHandoffRecompute() {
+      function startChromeCredentialHandoffRecompute(targetInput) {
         if (!isNormalChromeBrowser()) return;
 
         stopChromeCredentialHandoffRecompute(true);
 
         const startedAt = Date.now();
+        chromeCredentialHandoffTarget =
+          targetInput && isCredentialUsernameHelper(targetInput)
+            ? targetInput
+            : null;
+        chromeCredentialHandoffTargetWasFocused =
+          chromeCredentialHandoffTarget === document.activeElement;
         chromeCredentialHandoffStartedAt = startedAt;
         chromeCredentialHandoffUntil =
           startedAt + ANDROID_CHROME_HANDOFF_MAX_ACTIVE_MS;
@@ -1241,10 +1281,16 @@
         }
       }
 
-      function resetForCredentialSession(form) {
+      function resetForCredentialSession(form, pinCredentialUsername) {
         const preserveAndroidChromeKeyboardLayout =
           isNormalChromeBrowser() &&
           getRawKeyboardHeight() > KEYBOARD_OPEN_THRESHOLD;
+        const credentialUsername =
+          pinCredentialUsername && form
+            ? form.querySelector(
+                "[data-unity-credential-helper='username']"
+              )
+            : null;
 
         invalidateScheduledLayout();
 
@@ -1268,17 +1314,19 @@
           lockedInputBottom = 0;
           keyboardSessionUntil = 0;
         } else {
-          startChromeCredentialHandoffRecompute();
+          startChromeCredentialHandoffRecompute(credentialUsername);
         }
       }
 
       window.UnityNativeInputLayout = window.UnityNativeInputLayout || {};
       window.UnityNativeInputLayout.releaseCredentialForm =
         releaseCredentialFormNativePreview;
-      window.UnityNativeInputLayout.beginCredentialSession =
-        resetForCredentialSession;
-      window.UnityNativeInputLayout.completeCredentialSession =
-        resetForCredentialSession;
+      window.UnityNativeInputLayout.beginCredentialSession = function (form) {
+        resetForCredentialSession(form, true);
+      };
+      window.UnityNativeInputLayout.completeCredentialSession = function (form) {
+        resetForCredentialSession(form, false);
+      };
       window.UnityNativeInputLayout.preparePasswordTmpHandoff = function () {
         startChromeCredentialHandoffRecompute();
       };
