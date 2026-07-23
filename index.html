@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=13.0'
+          'ServiceWorker.js?v=13.1'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "13.0";
+    const BUILD_VERSION = "13.1";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/947ab39d46f4fd69d10be27deefb0983.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/d2858f0513170c67964052b63ffef160.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "13.0",
+      productVersion: "13.1",
       showBanner: unityShowBanner,
     };
 
@@ -495,7 +495,9 @@
       // Android Chrome browser only.
       const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
       const ANDROID_CHROME_CREDENTIAL_PREVIEW_CLEARANCE = 12;
-      const ANDROID_CHROME_EXPANDED_CREDENTIAL_ACCESSORY_LIFT = 156;
+      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_KEYBOARD_RATIO = 0.44;
+      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_MIN_LIFT = 96;
+      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_MAX_LIFT = 180;
       const ANDROID_CHROME_HANDOFF_MIN_ACTIVE_MS = 900;
       const ANDROID_CHROME_HANDOFF_MAX_ACTIVE_MS = 2000;
       const ANDROID_CHROME_HANDOFF_STABLE_MS = 250;
@@ -532,6 +534,7 @@
       let chromeCredentialHandoffTarget = null;
       let chromeCredentialHandoffTargetWasFocused = false;
       let chromeCredentialAccessoryLiftTarget = null;
+      let chromeCredentialAccessoryBaselineHeight = 0;
 
       function isInstalledWebApp() {
         return (
@@ -827,6 +830,32 @@
         );
       }
 
+      function getChromeCredentialAccessoryResidualLift(input) {
+        if (
+          !chromeCredentialAccessoryLiftTarget ||
+          input !== chromeCredentialAccessoryLiftTarget ||
+          chromeCredentialAccessoryBaselineHeight <= KEYBOARD_OPEN_THRESHOLD
+        ) return 0;
+
+        const targetAccessoryLift = Math.max(
+          ANDROID_CHROME_CREDENTIAL_ACCESSORY_MIN_LIFT,
+          Math.min(
+            ANDROID_CHROME_CREDENTIAL_ACCESSORY_MAX_LIFT,
+            Math.round(
+              chromeCredentialAccessoryBaselineHeight *
+                ANDROID_CHROME_CREDENTIAL_ACCESSORY_KEYBOARD_RATIO
+            )
+          )
+        );
+        const reportedExpansion = Math.max(
+          0,
+          getChromeCredentialHandoffKeyboardHeight() -
+            chromeCredentialAccessoryBaselineHeight
+        );
+
+        return Math.max(0, targetAccessoryLift - reportedExpansion);
+      }
+
       function stopChromeCredentialHandoffRecompute(clearCache) {
         if (chromeCredentialHandoffTimer) {
           clearInterval(chromeCredentialHandoffTimer);
@@ -842,6 +871,7 @@
 
         if (clearCache) {
           chromeCredentialAccessoryLiftTarget = null;
+          chromeCredentialAccessoryBaselineHeight = 0;
           lastKeyboardHeight = 0;
           lockedInputBottom = 0;
           keyboardSessionUntil = 0;
@@ -859,6 +889,10 @@
             ? targetInput
             : null;
         chromeCredentialAccessoryLiftTarget = chromeCredentialHandoffTarget;
+        chromeCredentialAccessoryBaselineHeight =
+          chromeCredentialAccessoryLiftTarget
+            ? getChromeCredentialHandoffKeyboardHeight()
+            : 0;
         chromeCredentialHandoffTargetWasFocused =
           chromeCredentialHandoffTarget === document.activeElement;
         chromeCredentialHandoffStartedAt = startedAt;
@@ -1346,6 +1380,7 @@
         ) return;
 
         chromeCredentialAccessoryLiftTarget = null;
+        chromeCredentialAccessoryBaselineHeight = 0;
         scheduleByScan();
       };
       window.UnityNativeInputLayout.isKeyboardOpen = function () {
@@ -1434,13 +1469,11 @@
           ) {
             bottom += ANDROID_CHROME_CREDENTIAL_PREVIEW_CLEARANCE;
 
-            // Password Manager can expand its chooser upward without changing
-            // VirtualKeyboard.boundingRect or visualViewport. Reserve that
-            // browser-owned overlay only while the credential username has
-            // taken ownership directly from an already-open keyboard.
-            if (targetInput === chromeCredentialAccessoryLiftTarget) {
-              bottom += ANDROID_CHROME_EXPANDED_CREDENTIAL_ACCESSORY_LIFT;
-            }
+            // Chrome can report none, part, or all of Password Manager's
+            // expanded accessory height depending on the keyboard and display.
+            // Add only the unreported remainder relative to the password
+            // keyboard geometry captured immediately before this handoff.
+            bottom += getChromeCredentialAccessoryResidualLift(targetInput);
           }
         }
 
