@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=12.4'
+          'ServiceWorker.js?v=12.5'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "12.4";
+    const BUILD_VERSION = "12.5";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/903fd17d29d2f0b43f7cb5850abe0741.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/1d461bdf4916d6b419c43cbc67872aee.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "12.4",
+      productVersion: "12.5",
       showBanner: unityShowBanner,
     };
 
@@ -520,6 +520,7 @@
       let lockedInputBottom = 0;
       let keyboardSessionUntil = 0;
       let lastUserGestureAt = 0;
+      let resetChromeCredentialCacheOnNextInput = false;
 
       function isInstalledWebApp() {
         return (
@@ -1124,10 +1125,14 @@
 
         if (nextFocusedInput) {
           schedulePosition(nextFocusedInput);
+        } else {
+          resetChromeCredentialCacheOnNextInput = false;
         }
       }
 
       function resetForCredentialSession(form) {
+        resetChromeCredentialCacheOnNextInput = false;
+
         const preserveAndroidChromeKeyboardLayout =
           isNormalChromeBrowser() &&
           getRawKeyboardHeight() > KEYBOARD_OPEN_THRESHOLD;
@@ -1162,6 +1167,14 @@
         resetForCredentialSession;
       window.UnityNativeInputLayout.completeCredentialSession =
         resetForCredentialSession;
+      window.UnityNativeInputLayout.preparePasswordTmpHandoff = function () {
+        if (isNormalChromeBrowser()) {
+          resetChromeCredentialCacheOnNextInput = true;
+        }
+      };
+      window.UnityNativeInputLayout.cancelPasswordTmpHandoff = function () {
+        resetChromeCredentialCacheOnNextInput = false;
+      };
       window.UnityNativeInputLayout.isKeyboardOpen = function () {
         return getRawKeyboardHeight() > KEYBOARD_OPEN_THRESHOLD;
       };
@@ -1317,6 +1330,21 @@
         const target = isTextInput(input) ? input : findCandidateInput();
 
         if (!target) return;
+
+        if (
+          resetChromeCredentialCacheOnNextInput &&
+          isNormalChromeBrowser() &&
+          !isCredentialHelper(target)
+        ) {
+          // The username credential strip increases Chrome's reported keyboard
+          // boundary. Consume that cached boundary only when Unity's next native
+          // input actually gains focus, so the password preview can recompute
+          // from the current keyboard without disturbing password -> username.
+          resetChromeCredentialCacheOnNextInput = false;
+          lastKeyboardHeight = 0;
+          lockedInputBottom = 0;
+          keyboardSessionUntil = 0;
+        }
 
         if (activeInput && activeInput !== target) {
           const previousInput = activeInput;
@@ -2295,6 +2323,13 @@
       function beginPasswordTmpHandoff() {
         if (!isNormalAndroidChromeBrowser() || !loginState) return;
 
+        if (
+          window.UnityNativeInputLayout &&
+          typeof window.UnityNativeInputLayout.preparePasswordTmpHandoff === "function"
+        ) {
+          window.UnityNativeInputLayout.preparePasswordTmpHandoff();
+        }
+
         const handoffState = loginState;
         handoffState.passwordTmpHandoffPending = true;
 
@@ -2309,6 +2344,14 @@
         passwordTmpHandoffTimer = setTimeout(function () {
           passwordTmpHandoffTimer = null;
           if (loginState !== handoffState) return;
+
+          if (
+            window.UnityNativeInputLayout &&
+            typeof window.UnityNativeInputLayout.cancelPasswordTmpHandoff === "function"
+          ) {
+            window.UnityNativeInputLayout.cancelPasswordTmpHandoff();
+          }
+
           cancelCredentialAttempt("password-handoff-timeout");
         }, 750);
       }
