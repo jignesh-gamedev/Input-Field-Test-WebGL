@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=12.9'
+          'ServiceWorker.js?v=13.0'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "12.9";
+    const BUILD_VERSION = "13.0";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/ac2ed7dbf32417df34866ca4174d93c1.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/947ab39d46f4fd69d10be27deefb0983.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "12.9",
+      productVersion: "13.0",
       showBanner: unityShowBanner,
     };
 
@@ -495,6 +495,7 @@
       // Android Chrome browser only.
       const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
       const ANDROID_CHROME_CREDENTIAL_PREVIEW_CLEARANCE = 12;
+      const ANDROID_CHROME_EXPANDED_CREDENTIAL_ACCESSORY_LIFT = 156;
       const ANDROID_CHROME_HANDOFF_MIN_ACTIVE_MS = 900;
       const ANDROID_CHROME_HANDOFF_MAX_ACTIVE_MS = 2000;
       const ANDROID_CHROME_HANDOFF_STABLE_MS = 250;
@@ -530,6 +531,7 @@
       let chromeCredentialHandoffTimer = null;
       let chromeCredentialHandoffTarget = null;
       let chromeCredentialHandoffTargetWasFocused = false;
+      let chromeCredentialAccessoryLiftTarget = null;
 
       function isInstalledWebApp() {
         return (
@@ -839,6 +841,7 @@
         chromeCredentialHandoffTargetWasFocused = false;
 
         if (clearCache) {
+          chromeCredentialAccessoryLiftTarget = null;
           lastKeyboardHeight = 0;
           lockedInputBottom = 0;
           keyboardSessionUntil = 0;
@@ -855,6 +858,7 @@
           targetInput && isCredentialUsernameHelper(targetInput)
             ? targetInput
             : null;
+        chromeCredentialAccessoryLiftTarget = chromeCredentialHandoffTarget;
         chromeCredentialHandoffTargetWasFocused =
           chromeCredentialHandoffTarget === document.activeElement;
         chromeCredentialHandoffStartedAt = startedAt;
@@ -1333,6 +1337,17 @@
       window.UnityNativeInputLayout.cancelPasswordTmpHandoff = function () {
         stopChromeCredentialHandoffRecompute(true);
       };
+      window.UnityNativeInputLayout.releaseCredentialAccessoryLift = function (
+        form
+      ) {
+        if (
+          !chromeCredentialAccessoryLiftTarget ||
+          (form && !form.contains(chromeCredentialAccessoryLiftTarget))
+        ) return;
+
+        chromeCredentialAccessoryLiftTarget = null;
+        scheduleByScan();
+      };
       window.UnityNativeInputLayout.isKeyboardOpen = function () {
         return getRawKeyboardHeight() > KEYBOARD_OPEN_THRESHOLD;
       };
@@ -1418,6 +1433,14 @@
             isNormalChromeBrowser()
           ) {
             bottom += ANDROID_CHROME_CREDENTIAL_PREVIEW_CLEARANCE;
+
+            // Password Manager can expand its chooser upward without changing
+            // VirtualKeyboard.boundingRect or visualViewport. Reserve that
+            // browser-owned overlay only while the credential username has
+            // taken ownership directly from an already-open keyboard.
+            if (targetInput === chromeCredentialAccessoryLiftTarget) {
+              bottom += ANDROID_CHROME_EXPANDED_CREDENTIAL_ACCESSORY_LIFT;
+            }
           }
         }
 
@@ -2231,16 +2254,6 @@
           // restored capture while the password TMP field owned the keyboard.
           notifyUnityCredentialHelperFocus(loginState, true);
 
-          if (loginState.replayActiveRequestOnFirstFocus) {
-            // A direct password -> username touch first retires TMP's password
-            // editing state, then the browser completes the helper focus. Replay
-            // the already-active request once at that point. This is the same
-            // arm/layout/focus sequence that currently occurs on the working
-            // second tap, but it remains inside the original trusted gesture.
-            loginState.replayActiveRequestOnFirstFocus = false;
-            requestLoginForm(true);
-          }
-
           if (loginState.helperBlurredForCredentialUi) {
             scheduleCredentialHelperParkAfterCredentialUi();
           }
@@ -2984,6 +2997,15 @@
 
         if (loginState) {
           const activeForm = ensureCredentialForm();
+          if (
+            window.UnityNativeInputLayout &&
+            typeof window.UnityNativeInputLayout.releaseCredentialAccessoryLift ===
+              "function"
+          ) {
+            window.UnityNativeInputLayout.releaseCredentialAccessoryLift(
+              activeForm
+            );
+          }
           notifyUnityCredentialHelperFocus(loginState, true);
           armCredentialForm(activeForm);
           applyLoginFormLayout();
@@ -2997,12 +3019,6 @@
         const usernameInput = document.getElementById(USERNAME_ID);
         const passwordInput = document.getElementById(PASSWORD_ID);
         const now = Date.now();
-        const replayActiveRequestOnFirstFocus =
-          isNormalAndroidChromeBrowser() &&
-          isAndroidKeyboardOpen() &&
-          !!document.activeElement &&
-          !form.contains(document.activeElement) &&
-          isEditableTarget(document.activeElement);
 
         usernameInput.value = loginConfig.username || "";
 
@@ -3037,8 +3053,7 @@
           credentialUiInteractionSeen: false,
           helperBlurredForCredentialUi: false,
           pageFocusWasLost: false,
-          passwordTmpHandoffPending: false,
-          replayActiveRequestOnFirstFocus: replayActiveRequestOnFirstFocus
+          passwordTmpHandoffPending: false
         };
 
         form.style.display = "block";
