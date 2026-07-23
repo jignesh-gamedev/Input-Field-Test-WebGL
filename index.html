@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=12.3'
+          'ServiceWorker.js?v=12.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "12.3";
+    const BUILD_VERSION = "12.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/f7c4d0e10d5a9aea007f34242ae9ee42.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/903fd17d29d2f0b43f7cb5850abe0741.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "12.3",
+      productVersion: "12.4",
       showBanner: unityShowBanner,
     };
 
@@ -494,6 +494,7 @@
 
       // Android Chrome browser only.
       const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
+      const ANDROID_CHROME_CREDENTIAL_PREVIEW_CLEARANCE = 12;
 
       // Android Facebook Messenger / Facebook in-app browser fallback.
       // Used only when visualViewport/VirtualKeyboard reports keyboard height as 0.
@@ -1098,6 +1099,16 @@
       function releaseCredentialFormNativePreview(form) {
         if (!form) return;
 
+        // When Unity has already focused its password input, keep that new target
+        // across credential-helper cleanup. The focusin layout pass runs before
+        // the credential bridge's focusin listener, and invalidating it without
+        // rescheduling would leave the password preview unpositioned.
+        const nextFocusedInput =
+          isVisibleCandidateInput(document.activeElement) &&
+          !form.contains(document.activeElement)
+            ? document.activeElement
+            : null;
+
         invalidateScheduledLayout();
 
         Array.from(positionedInputs).forEach(function (input) {
@@ -1110,9 +1121,17 @@
         if (activeInput && form.contains(activeInput)) activeInput = null;
         if (activeOkButton && form.contains(activeOkButton)) activeOkButton = null;
         if (lastOkButton && form.contains(lastOkButton)) lastOkButton = null;
+
+        if (nextFocusedInput) {
+          schedulePosition(nextFocusedInput);
+        }
       }
 
       function resetForCredentialSession(form) {
+        const preserveAndroidChromeKeyboardLayout =
+          isNormalChromeBrowser() &&
+          getRawKeyboardHeight() > KEYBOARD_OPEN_THRESHOLD;
+
         invalidateScheduledLayout();
 
         // A TMP-native element can still be painted above the keyboard when the
@@ -1125,9 +1144,15 @@
         activeInput = null;
         activeOkButton = null;
         lastOkButton = null;
-        lastKeyboardHeight = 0;
-        lockedInputBottom = 0;
-        keyboardSessionUntil = 0;
+
+        // Switching from TMP password to the credential username does not close
+        // the keyboard. Preserve its already-correct stable boundary so the
+        // helper cannot briefly drop beneath Chrome's credential suggestion row.
+        if (!preserveAndroidChromeKeyboardLayout) {
+          lastKeyboardHeight = 0;
+          lockedInputBottom = 0;
+          keyboardSessionUntil = 0;
+        }
       }
 
       window.UnityNativeInputLayout = window.UnityNativeInputLayout || {};
@@ -1213,6 +1238,16 @@
         } else {
           bottom = getStableInputBottom();
           lift = 0;
+
+          // Chrome's credential strip is browser-owned UI above Gboard. Keep a
+          // small credential-only clearance so the preview and OK button never
+          // intersect it. Normal TMP inputs, iOS, and Messenger remain unchanged.
+          if (
+            isCredentialUsernameHelper(targetInput) &&
+            isNormalChromeBrowser()
+          ) {
+            bottom += ANDROID_CHROME_CREDENTIAL_PREVIEW_CLEARANCE;
+          }
         }
 
         applyInputStyle(targetInput, okWidth, bottom, lift);
@@ -1840,6 +1875,7 @@
       let eagerPairResetTimer = null;
       let credentialUiReturnTimer = null;
       let credentialUiFrameRequest = null;
+      let passwordTmpHandoffTimer = null;
       let lastCredentialAnimationFrameAt = 0;
       let loginState = null;
       let loginConfig = null;
@@ -1875,6 +1911,23 @@
         return /Android/i.test(navigator.userAgent || "");
       }
 
+      function isNormalAndroidChromeBrowser() {
+        const userAgent = navigator.userAgent || "";
+        const installed =
+          (window.matchMedia && window.matchMedia("(display-mode: fullscreen)").matches) ||
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+          (window.matchMedia && window.matchMedia("(display-mode: minimal-ui)").matches) ||
+          window.navigator.standalone === true ||
+          (document.referrer && document.referrer.indexOf("android-app://") === 0);
+
+        return (
+          /Android/i.test(userAgent) &&
+          /Chrome\/\d+/i.test(userAgent) &&
+          !/SamsungBrowser|EdgA|OPR|Firefox|FBAN|FBAV|FB_IAB|MessengerForAndroid|Orca-Android/i.test(userAgent) &&
+          !installed
+        );
+      }
+
       function isEditableTarget(target) {
         if (!target || target.nodeType !== 1) return false;
 
@@ -1890,9 +1943,9 @@
         return !!(form && target && form.contains(target));
       }
 
-      function pointerIsInsideUsername(event, state) {
+      function pointerIsInsideBounds(event, bounds) {
         const canvas = document.getElementById("unity-canvas");
-        if (!canvas || !state || !state.usernameBounds) return false;
+        if (!canvas || !bounds) return false;
 
         const canvasRect = canvas.getBoundingClientRect();
         if (canvasRect.width <= 0 || canvasRect.height <= 0) return false;
@@ -1908,13 +1961,26 @@
 
         const x = (clientX - canvasRect.left) / canvasRect.width;
         const y = (clientY - canvasRect.top) / canvasRect.height;
-        const bounds = state.usernameBounds;
 
         return (
           x >= bounds.left &&
           x <= bounds.left + bounds.width &&
           y >= bounds.top &&
           y <= bounds.top + bounds.height
+        );
+      }
+
+      function pointerIsInsideUsername(event, state) {
+        return pointerIsInsideBounds(
+          event,
+          state ? state.usernameBounds : null
+        );
+      }
+
+      function pointerIsInsidePassword(event, state) {
+        return pointerIsInsideBounds(
+          event,
+          state ? state.passwordBounds : null
         );
       }
 
@@ -2224,6 +2290,27 @@
             reason || "dismissed"
           );
         }
+      }
+
+      function beginPasswordTmpHandoff() {
+        if (!isNormalAndroidChromeBrowser() || !loginState) return;
+
+        const handoffState = loginState;
+        handoffState.passwordTmpHandoffPending = true;
+
+        if (passwordTmpHandoffTimer) {
+          clearTimeout(passwordTmpHandoffTimer);
+        }
+
+        // Unity normally creates and focuses its password input synchronously or
+        // on the next frame. Keep the HTML username focused until that happens so
+        // Android performs an input-to-input focus transfer instead of closing
+        // and reopening the keyboard. This timer is only an outside-tap fallback.
+        passwordTmpHandoffTimer = setTimeout(function () {
+          passwordTmpHandoffTimer = null;
+          if (loginState !== handoffState) return;
+          cancelCredentialAttempt("password-handoff-timeout");
+        }, 750);
       }
 
       function scheduleEagerPairPasswordReset(state, pairKey) {
@@ -2747,7 +2834,8 @@
           lastMirroredUsername: loginConfig.username || "",
           credentialUiInteractionSeen: false,
           helperBlurredForCredentialUi: false,
-          pageFocusWasLost: false
+          pageFocusWasLost: false,
+          passwordTmpHandoffPending: false
         };
 
         form.style.display = "block";
@@ -2793,6 +2881,11 @@
       }
 
       function removeActiveLoginForm() {
+        if (passwordTmpHandoffTimer) {
+          clearTimeout(passwordTmpHandoffTimer);
+          passwordTmpHandoffTimer = null;
+        }
+
         if (pollTimer) {
           clearInterval(pollTimer);
           pollTimer = null;
@@ -2895,6 +2988,17 @@
 
         if (
           loginState &&
+          isNormalAndroidChromeBrowser() &&
+          loginState.passwordTmpHandoffPending
+        ) {
+          // The new TMP password input now owns focus. Cleaning up at this point
+          // cannot blur the credential username, so the keyboard stays open.
+          cancelCredentialAttempt("password-input");
+          return;
+        }
+
+        if (
+          loginState &&
           isAndroidBrowser() &&
           Date.now() - lastProtectedUsernameTouchAt < 800
         ) {
@@ -2969,7 +3073,14 @@
             // Another editable (for example the password field) was selected
             // intentionally. End the username-helper session without trying to
             // transfer focus or recreate a TMP-native username element.
-            removeActiveLoginForm();
+            if (
+              isNormalAndroidChromeBrowser() &&
+              pointerIsInsidePassword(event, loginConfig)
+            ) {
+              beginPasswordTmpHandoff();
+            } else {
+              removeActiveLoginForm();
+            }
           }
           return;
         }
@@ -2978,7 +3089,14 @@
           if (Date.now() - loginState.openedAt < 250) return;
 
           if (!form || !form.contains(event.target)) {
-            cancelCredentialAttempt("outside-pointer");
+            if (
+              isNormalAndroidChromeBrowser() &&
+              pointerIsInsidePassword(event, loginConfig)
+            ) {
+              beginPasswordTmpHandoff();
+            } else {
+              cancelCredentialAttempt("outside-pointer");
+            }
           }
           return;
         }
