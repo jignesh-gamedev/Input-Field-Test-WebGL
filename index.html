@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=12.2'
+          'ServiceWorker.js?v=12.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "12.2";
+    const BUILD_VERSION = "12.3";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/c839a96e311cf007a171e7da35cba175.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/9d0acfd684dbccf6410efcdbce3685ca.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/f7c4d0e10d5a9aea007f34242ae9ee42.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/c17848e6223fe0a62b2ba35204e4dbce.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/ede7d9f5f2a413dc516849f3ac0fb90d.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "12.2",
+      productVersion: "12.3",
       showBanner: unityShowBanner,
     };
 
@@ -1829,7 +1829,6 @@
       const USERNAME_ID = "username";
       const PASSWORD_ID = "current-password";
       const SUBMIT_ID = "unity-webgl-credential-submit";
-      const USERNAME_PROXY_ID = "unity-webgl-credential-username-proxy";
       const CREDENTIAL_ATTEMPT_TIMEOUT_MS = 12000;
       const AUTOFILL_SETTLE_MS = 250;
       const EAGER_AUTOFILL_GUARD_MS = 400;
@@ -1963,32 +1962,6 @@
         submit.textContent = "OK";
         submit.tabIndex = -1;
 
-        const usernameProxy = document.createElement("div");
-        usernameProxy.id = USERNAME_PROXY_ID;
-        usernameProxy.setAttribute("aria-hidden", "true");
-        usernameProxy.style.cssText =
-          "position:fixed;left:-10000px;top:0;width:1px;height:1px;" +
-          "z-index:2147483647;opacity:0.01;background:transparent;" +
-          "pointer-events:none;touch-action:auto;";
-
-        function handleUsernameProxyGesture(event) {
-          if (!isAndroidBrowser() || !loginState) return;
-
-          if (event.cancelable) event.preventDefault();
-          event.stopImmediatePropagation();
-          const now = Date.now();
-          const isSamePhysicalGesture =
-            now - lastProtectedUsernameTouchAt < 180;
-          lastProtectedUsernameTouchAt = now;
-          loginState.credentialUiInteractionSeen = true;
-          if (!isSamePhysicalGesture) requestLoginForm(true);
-        }
-
-        usernameProxy.addEventListener("touchstart", handleUsernameProxyGesture, {
-          passive: false
-        });
-        usernameProxy.addEventListener("pointerdown", handleUsernameProxyGesture);
-
         const transparentInputStyle =
           "position:fixed;margin:0;padding:0;border:0;outline:0;" +
           "background:transparent;color:transparent;caret-color:transparent;" +
@@ -2036,10 +2009,24 @@
             now - lastProtectedUsernameTouchAt < 180;
           lastProtectedUsernameTouchAt = now;
 
-          // Run during the earliest direct touch event Chrome provides. The
-          // document pointer handler remains as a fallback when the canvas was
-          // hit-tested before the dormant helper became the target.
-          if (!isSamePhysicalGesture) requestLoginForm(true);
+          if (!isSamePhysicalGesture) {
+            // If Chrome kept this input focused after closing Password Manager,
+            // blur it during touchstart and let the default action of this same
+            // physical touch focus it again. A native focus transition can open
+            // the keyboard/Password Manager; a synthetic click cannot reliably
+            // do that on Android.
+            const needsNativeRefocus =
+              document.activeElement === username &&
+              !isAndroidKeyboardOpen();
+
+            credentialUsernameRefocusInProgress = needsNativeRefocus;
+            try {
+              if (needsNativeRefocus) username.blur();
+              requestLoginForm(false, true);
+            } finally {
+              credentialUsernameRefocusInProgress = false;
+            }
+          }
           if (loginState) loginState.credentialUiInteractionSeen = true;
         }, { passive: true });
         password.addEventListener("input", function () {
@@ -2052,7 +2039,6 @@
         form.appendChild(username);
         form.appendChild(password);
         form.appendChild(submit);
-        form.appendChild(usernameProxy);
 
         document.body.appendChild(form);
         setCredentialFormDormant(form);
@@ -2167,9 +2153,9 @@
 
           // Chrome exposes no explicit "none selected" callback. Keep the same
           // helper session alive but park its painted preview back over the TMP
-          // username bounds. The next username tap is caught by the form-owned
-          // proxy, and typed changes continue to mirror into TMP without creating
-          // a competing TMP-native input.
+          // username bounds. The next username tap reaches this real form input,
+          // and typed changes continue to mirror into TMP without creating a
+          // competing TMP-native input.
           returnState.helperBlurredForCredentialUi = false;
           returnState.pageFocusWasLost = false;
           parkActiveLoginFormPreview();
@@ -2451,36 +2437,6 @@
         submit.style.setProperty("box-shadow", "none", "important");
       }
 
-      function hideCredentialUsernameProxy(form) {
-        if (!form) return;
-
-        const proxy = form.querySelector("#" + USERNAME_PROXY_ID);
-        if (!proxy) return;
-
-        proxy.style.setProperty("left", "-10000px", "important");
-        proxy.style.setProperty("top", "0", "important");
-        proxy.style.setProperty("width", "1px", "important");
-        proxy.style.setProperty("height", "1px", "important");
-        proxy.style.setProperty("pointer-events", "none", "important");
-      }
-
-      function showCredentialUsernameProxy(form, state) {
-        if (!isAndroidBrowser() || !form || !state || !state.usernameBounds) {
-          hideCredentialUsernameProxy(form);
-          return;
-        }
-
-        const proxy = form.querySelector("#" + USERNAME_PROXY_ID);
-        if (!proxy) return;
-
-        setInputBounds(proxy, state.usernameBounds, true);
-        proxy.style.setProperty("z-index", "2147483647", "important");
-        proxy.style.setProperty("opacity", "0.01", "important");
-        proxy.style.setProperty("background", "transparent", "important");
-        proxy.style.setProperty("pointer-events", "auto", "important");
-        proxy.style.setProperty("touch-action", "auto", "important");
-      }
-
       function releaseCredentialSubmitForActiveForm(form) {
         if (!form) return;
 
@@ -2540,7 +2496,6 @@
         }
 
         hideCredentialSubmit(form);
-        hideCredentialUsernameProxy(form);
 
         if (form.contains(document.activeElement)) {
           try {
@@ -2596,7 +2551,6 @@
         }
 
         releaseCredentialSubmitForActiveForm(form);
-        showCredentialUsernameProxy(form, loginState || loginConfig);
       }
 
       function parkActiveLoginFormPreview() {
@@ -2615,7 +2569,6 @@
         usernameInput.style.setProperty("caret-color", "transparent", "important");
 
         hideCredentialSubmit(form);
-        showCredentialUsernameProxy(form, loginState);
         form.setAttribute("data-unity-credential-preview", "parked");
       }
 
@@ -2638,14 +2591,6 @@
           layoutState.passwordBounds
         );
 
-        const form = document.getElementById(FORM_ID);
-        if (
-          form &&
-          loginState &&
-          form.getAttribute("data-unity-credential-active") === "true"
-        ) {
-          showCredentialUsernameProxy(form, loginState);
-        }
       }
 
       function configureLoginForm(options) {
@@ -2751,7 +2696,7 @@
         usernameInput.click();
       }
 
-      function requestLoginForm(reopenKeyboardIfNeeded) {
+      function requestLoginForm(reopenKeyboardIfNeeded, deferFocusToNativeTouch) {
         if (!loginConfig) return;
 
         if (loginState) {
@@ -2759,7 +2704,9 @@
           notifyUnityCredentialHelperFocus(loginState, true);
           armCredentialForm(activeForm);
           applyLoginFormLayout();
-          focusCredentialUsername(reopenKeyboardIfNeeded);
+          if (!deferFocusToNativeTouch) {
+            focusCredentialUsername(reopenKeyboardIfNeeded);
+          }
           return;
         }
 
@@ -2825,7 +2772,9 @@
           }, CREDENTIAL_ATTEMPT_TIMEOUT_MS);
         }
 
-        focusCredentialUsername(reopenKeyboardIfNeeded);
+        if (!deferFocusToNativeTouch) {
+          focusCredentialUsername(reopenKeyboardIfNeeded);
+        }
       }
 
       function updateCredentialPointerPrime(event) {
@@ -3006,7 +2955,7 @@
               const isSamePhysicalGesture =
                 now - lastProtectedUsernameTouchAt < 180;
               lastProtectedUsernameTouchAt = now;
-              if (!isSamePhysicalGesture) requestLoginForm(true);
+              if (!isSamePhysicalGesture) requestLoginForm(false, true);
               if (loginState) loginState.credentialUiInteractionSeen = true;
             } else if (!loginState && event.target.id === USERNAME_ID) {
               requestLoginForm();
