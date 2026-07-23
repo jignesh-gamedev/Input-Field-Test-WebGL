@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=12.0'
+          'ServiceWorker.js?v=12.1'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "12.0";
+    const BUILD_VERSION = "12.1";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/24521f498b27dc5dc51db89d48f77648.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/4f86befb02440babca5b5f272288e6f8.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/01125ce37b21a652cf83688f68d0d107.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "12.0",
+      productVersion: "12.1",
       showBanner: unityShowBanner,
     };
 
@@ -1137,6 +1137,9 @@
         resetForCredentialSession;
       window.UnityNativeInputLayout.completeCredentialSession =
         resetForCredentialSession;
+      window.UnityNativeInputLayout.isKeyboardOpen = function () {
+        return getRawKeyboardHeight() > KEYBOARD_OPEN_THRESHOLD;
+      };
 
       function focusInputForAndroidMessenger(input) {
         if (!isAndroidFacebookInAppBrowser || !input) return;
@@ -1842,6 +1845,7 @@
       let loginState = null;
       let loginConfig = null;
       let lastProtectedUsernameTouchAt = 0;
+      let credentialUsernameRefocusInProgress = false;
 
       function isIOSBrowser() {
         return (
@@ -1972,9 +1976,12 @@
 
           if (event.cancelable) event.preventDefault();
           event.stopImmediatePropagation();
-          lastProtectedUsernameTouchAt = Date.now();
+          const now = Date.now();
+          const isSamePhysicalGesture =
+            now - lastProtectedUsernameTouchAt < 180;
+          lastProtectedUsernameTouchAt = now;
           loginState.credentialUiInteractionSeen = true;
-          requestLoginForm();
+          if (!isSamePhysicalGesture) requestLoginForm(true);
         }
 
         usernameProxy.addEventListener("touchstart", handleUsernameProxyGesture, {
@@ -2021,6 +2028,20 @@
         username.addEventListener("blur", function () {
           markCredentialUiFocusLost();
         });
+        username.addEventListener("touchstart", function () {
+          if (!isAndroidBrowser()) return;
+
+          const now = Date.now();
+          const isSamePhysicalGesture =
+            now - lastProtectedUsernameTouchAt < 180;
+          lastProtectedUsernameTouchAt = now;
+
+          // Run during the earliest direct touch event Chrome provides. The
+          // document pointer handler remains as a fallback when the canvas was
+          // hit-tested before the dormant helper became the target.
+          if (!isSamePhysicalGesture) requestLoginForm(true);
+          if (loginState) loginState.credentialUiInteractionSeen = true;
+        }, { passive: true });
         password.addEventListener("input", function () {
           observeCredentialValues(true);
         });
@@ -2112,7 +2133,8 @@
       function markCredentialUiFocusLost() {
         if (
           !isAndroidBrowser() ||
-          !loginState
+          !loginState ||
+          credentialUsernameRefocusInProgress
         ) return;
 
         // Ignore only the helper/TMP focus churn caused by the opening tap. A
@@ -2675,19 +2697,61 @@
         );
       }
 
-      function focusCredentialUsername() {
+      function isAndroidKeyboardOpen() {
+        if (!isAndroidBrowser()) return true;
+
+        const nativeLayout = window.UnityNativeInputLayout;
+        if (
+          nativeLayout &&
+          typeof nativeLayout.isKeyboardOpen === "function"
+        ) {
+          return nativeLayout.isKeyboardOpen();
+        }
+
+        if (!window.visualViewport) return false;
+        return (
+          window.innerHeight -
+          window.visualViewport.height -
+          window.visualViewport.offsetTop
+        ) > 80;
+      }
+
+      function focusCredentialUsername(reopenKeyboardIfNeeded) {
         const usernameInput = document.getElementById(USERNAME_ID);
         if (!usernameInput) return;
 
+        const needsFreshFocusTransition =
+          reopenKeyboardIfNeeded === true &&
+          isAndroidBrowser() &&
+          document.activeElement === usernameInput &&
+          !isAndroidKeyboardOpen();
+
+        credentialUsernameRefocusInProgress = needsFreshFocusTransition;
         try {
-          usernameInput.focus({ preventScroll: true });
-        } catch (_) {
-          usernameInput.focus();
+          if (needsFreshFocusTransition) usernameInput.blur();
+
+          try {
+            usernameInput.focus({ preventScroll: true });
+          } catch (_) {
+            usernameInput.focus();
+          }
+
+          if (
+            needsFreshFocusTransition &&
+            navigator.virtualKeyboard &&
+            typeof navigator.virtualKeyboard.show === "function"
+          ) {
+            try {
+              navigator.virtualKeyboard.show();
+            } catch (_) { }
+          }
+        } finally {
+          credentialUsernameRefocusInProgress = false;
         }
         usernameInput.click();
       }
 
-      function requestLoginForm() {
+      function requestLoginForm(reopenKeyboardIfNeeded) {
         if (!loginConfig) return;
 
         if (loginState) {
@@ -2695,7 +2759,7 @@
           notifyUnityCredentialHelperFocus(loginState, true);
           armCredentialForm(activeForm);
           applyLoginFormLayout();
-          focusCredentialUsername();
+          focusCredentialUsername(reopenKeyboardIfNeeded);
           return;
         }
 
@@ -2761,7 +2825,7 @@
           }, CREDENTIAL_ATTEMPT_TIMEOUT_MS);
         }
 
-        focusCredentialUsername();
+        focusCredentialUsername(reopenKeyboardIfNeeded);
       }
 
       function updateCredentialPointerPrime(event) {
@@ -2891,12 +2955,14 @@
           try {
             event.target.blur();
           } catch (_) { }
-          setTimeout(focusCredentialUsername, 0);
+          // Keep the helper focus inside the same trusted touch. Deferring this
+          // with setTimeout loses Android's keyboard-opening user activation.
+          focusCredentialUsername(true);
         }
       }, true);
 
       function keepAndroidCredentialHelperOnUsername(event) {
-        if (!loginConfig || !loginState) return false;
+        if (!loginConfig) return false;
         if (!isAndroidBrowser() || !pointerIsInsideUsername(event, loginConfig)) return false;
 
         const form = document.getElementById(FORM_ID);
@@ -2904,9 +2970,16 @@
 
         if (event.cancelable) event.preventDefault();
         event.stopImmediatePropagation();
-        lastProtectedUsernameTouchAt = Date.now();
-        loginState.credentialUiInteractionSeen = true;
-        requestLoginForm();
+        const now = Date.now();
+        const isSamePhysicalGesture =
+          now - lastProtectedUsernameTouchAt < 180;
+        lastProtectedUsernameTouchAt = now;
+
+        // Intercept the very first username touch as well. Otherwise Unity sees
+        // touchstart before the helper is active, selects TMP, and the first tap
+        // is spent only switching ownership instead of opening Password Manager.
+        if (!isSamePhysicalGesture) requestLoginForm(true);
+        if (loginState) loginState.credentialUiInteractionSeen = true;
         return true;
       }
 
@@ -2928,7 +3001,14 @@
 
         if (isEditableTarget(event.target)) {
           if (form && form.contains(event.target)) {
-            if (!loginState && event.target.id === USERNAME_ID) {
+            if (event.target.id === USERNAME_ID && isAndroidBrowser()) {
+              const now = Date.now();
+              const isSamePhysicalGesture =
+                now - lastProtectedUsernameTouchAt < 180;
+              lastProtectedUsernameTouchAt = now;
+              if (!isSamePhysicalGesture) requestLoginForm(true);
+              if (loginState) loginState.credentialUiInteractionSeen = true;
+            } else if (!loginState && event.target.id === USERNAME_ID) {
               requestLoginForm();
             }
 
