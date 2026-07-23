@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=11.9'
+          'ServiceWorker.js?v=12.0'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "11.9";
+    const BUILD_VERSION = "12.0";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/7569e7cbaed8071f2df7eb77a138fb45.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/24521f498b27dc5dc51db89d48f77648.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/883fb9cb7e62b32c8c012ccd54035271.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/4f86befb02440babca5b5f272288e6f8.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/15fe430b62dd4dde76618b07226dc81d.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/5616f06ca20cb642ee299f0a90c011e3.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/1182f23fe62bed774dbc3da7d7643276.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "11.9",
+      productVersion: "12.0",
       showBanner: unityShowBanner,
     };
 
@@ -1841,7 +1841,6 @@
       let lastCredentialAnimationFrameAt = 0;
       let loginState = null;
       let loginConfig = null;
-      let lastTmpNativeInput = null;
       let lastProtectedUsernameTouchAt = 0;
 
       function isIOSBrowser() {
@@ -1886,46 +1885,6 @@
       function isCredentialHelperTarget(target) {
         const form = document.getElementById(FORM_ID);
         return !!(form && target && form.contains(target));
-      }
-
-      function rememberTmpNativeInput(target) {
-        if (!isEditableTarget(target) || isCredentialHelperTarget(target)) return;
-
-        lastTmpNativeInput = target;
-        if (loginState) loginState.tmpNativeInput = target;
-      }
-
-      function getRememberedTmpNativeInput(state) {
-        let candidate = (state && state.tmpNativeInput) || lastTmpNativeInput;
-        if (
-          isEditableTarget(candidate) &&
-          !isCredentialHelperTarget(candidate) &&
-          candidate.isConnected !== false
-        ) return candidate;
-
-        // WebGLInput implementations may recreate their native element while
-        // changing focus. Recover the current external editable if the captured
-        // reference was replaced.
-        if (typeof document.querySelectorAll !== "function") return null;
-
-        const candidates = document.querySelectorAll(
-          "input, textarea, [contenteditable='true']"
-        );
-        for (let i = candidates.length - 1; i >= 0; i--) {
-          candidate = candidates[i];
-          if (
-            isEditableTarget(candidate) &&
-            !isCredentialHelperTarget(candidate) &&
-            candidate.isConnected !== false &&
-            !candidate.disabled &&
-            candidate.type !== "hidden"
-          ) {
-            rememberTmpNativeInput(candidate);
-            return candidate;
-          }
-        }
-
-        return null;
       }
 
       function pointerIsInsideUsername(event, state) {
@@ -2053,10 +2012,10 @@
 
           // Reassert browser-input ownership every time. WebGLInput may have
           // restored capture while the password TMP field owned the keyboard.
-          setCredentialHelperKeyboardOwnership(loginState, true);
+          notifyUnityCredentialHelperFocus(loginState, true);
 
           if (loginState.helperBlurredForCredentialUi) {
-            scheduleReturnToTmpAfterCredentialUi();
+            scheduleCredentialHelperParkAfterCredentialUi();
           }
         });
         username.addEventListener("blur", function () {
@@ -2118,14 +2077,14 @@
       }
 
       function mirrorManualUsernameInputToUnity(event, input) {
-        if (!loginState || loginState.handoffPending) return;
+        if (!loginState) return;
         if (!isManualUsernameInputEvent(event)) return;
 
         mirrorUsernameValueToUnity(input);
       }
 
       function mirrorUsernameValueToUnity(input) {
-        if (!loginState || loginState.handoffPending || !input) return;
+        if (!loginState || !input) return;
         if (
           !window.unityInstance ||
           !loginState.gameObjectName ||
@@ -2150,61 +2109,10 @@
         );
       }
 
-      function focusTmpNativeInput(state, result) {
-        const input = getRememberedTmpNativeInput(state);
-        if (!input) return false;
-
-        if (input.tagName === "INPUT" || input.tagName === "TEXTAREA") {
-          input.value = result.text || "";
-          if (typeof input.setSelectionRange === "function") {
-            try {
-              input.setSelectionRange(result.caretPosition, result.caretPosition);
-            } catch (_) { }
-          }
-        }
-
-        try {
-          input.focus({ preventScroll: true });
-        } catch (_) {
-          input.focus();
-        }
-
-        return true;
-      }
-
-      function handInputOwnershipBackToTmp(result) {
-        if (!loginState || loginState.handoffPending) return;
-        if (
-          !window.unityInstance ||
-          !loginState.gameObjectName ||
-          !loginState.focusRestoreCallbackMethodName
-        ) return;
-
-        const handoffState = loginState;
-        handoffState.handoffPending = true;
-
-        if (credentialUiReturnTimer) {
-          clearTimeout(credentialUiReturnTimer);
-          credentialUiReturnTimer = null;
-        }
-
-        window.unityInstance.SendMessage(
-          handoffState.gameObjectName,
-          handoffState.focusRestoreCallbackMethodName,
-          JSON.stringify(result)
-        );
-
-        // SendMessage may make TMP focus its native input synchronously. Keep the
-        // captured state so this is still safe if that focus already removed the
-        // credential form and cleared loginState.
-        focusTmpNativeInput(handoffState, result);
-      }
-
       function markCredentialUiFocusLost() {
         if (
           !isAndroidBrowser() ||
-          !loginState ||
-          loginState.handoffPending
+          !loginState
         ) return;
 
         // Ignore only the helper/TMP focus churn caused by the opening tap. A
@@ -2218,11 +2126,10 @@
         loginState.helperBlurredForCredentialUi = true;
       }
 
-      function scheduleReturnToTmpAfterCredentialUi() {
+      function scheduleCredentialHelperParkAfterCredentialUi() {
         if (
           !isAndroidBrowser() ||
           !loginState ||
-          loginState.handoffPending ||
           !loginState.helperBlurredForCredentialUi
         ) return;
 
@@ -2231,7 +2138,7 @@
 
         credentialUiReturnTimer = setTimeout(function () {
           credentialUiReturnTimer = null;
-          if (loginState !== returnState || returnState.handoffPending) return;
+          if (loginState !== returnState) return;
 
           const passwordInput = document.getElementById(PASSWORD_ID);
           if (passwordInput && passwordInput.value) return;
@@ -2251,7 +2158,6 @@
         if (
           !isAndroidBrowser() ||
           !loginState ||
-          loginState.handoffPending ||
           typeof document.hasFocus !== "function"
         ) return;
 
@@ -2259,7 +2165,7 @@
           loginState.pageFocusWasLost = true;
           markCredentialUiFocusLost();
         } else if (loginState.pageFocusWasLost) {
-          scheduleReturnToTmpAfterCredentialUi();
+          scheduleCredentialHelperParkAfterCredentialUi();
         }
       }
 
@@ -2276,7 +2182,7 @@
           // changing DOM focus. The first frame after that suspension is the
           // only page-observable dismissal signal Chrome exposes in this case.
           loginState.helperBlurredForCredentialUi = true;
-          scheduleReturnToTmpAfterCredentialUi();
+          scheduleCredentialHelperParkAfterCredentialUi();
         }
 
         lastCredentialAnimationFrameAt = timestamp;
@@ -2733,7 +2639,6 @@
           loginState.callbackMethodName = options.callbackMethodName;
           loginState.closedCallbackMethodName = options.closedCallbackMethodName;
           loginState.manualInputCallbackMethodName = options.manualInputCallbackMethodName;
-          loginState.focusRestoreCallbackMethodName = options.focusRestoreCallbackMethodName;
           loginState.helperFocusCallbackMethodName = options.helperFocusCallbackMethodName;
           loginState.usernameBounds = options.usernameBounds;
           loginState.usernameTextBounds = options.usernameTextBounds;
@@ -2754,10 +2659,8 @@
         applyLoginFormLayout();
       }
 
-      function setCredentialHelperKeyboardOwnership(state, helperOwnsKeyboard) {
+      function notifyUnityCredentialHelperFocus(state, hasFocus) {
         if (!state) return;
-
-        state.helperOwnsKeyboard = helperOwnsKeyboard;
 
         if (
           !window.unityInstance ||
@@ -2768,7 +2671,7 @@
         window.unityInstance.SendMessage(
           state.gameObjectName,
           state.helperFocusCallbackMethodName,
-          helperOwnsKeyboard ? "1" : "0"
+          hasFocus ? "1" : "0"
         );
       }
 
@@ -2789,7 +2692,7 @@
 
         if (loginState) {
           const activeForm = ensureCredentialForm();
-          setCredentialHelperKeyboardOwnership(loginState, true);
+          notifyUnityCredentialHelperFocus(loginState, true);
           armCredentialForm(activeForm);
           applyLoginFormLayout();
           focusCredentialUsername();
@@ -2820,7 +2723,6 @@
           callbackMethodName: loginConfig.callbackMethodName,
           closedCallbackMethodName: loginConfig.closedCallbackMethodName,
           manualInputCallbackMethodName: loginConfig.manualInputCallbackMethodName,
-          focusRestoreCallbackMethodName: loginConfig.focusRestoreCallbackMethodName,
           helperFocusCallbackMethodName: loginConfig.helperFocusCallbackMethodName,
           usernameBounds: loginConfig.usernameBounds,
           usernameTextBounds: loginConfig.usernameTextBounds,
@@ -2831,17 +2733,14 @@
           lastMutationAt: now,
           passwordEventSeen: false,
           eagerPairKey: null,
-          handoffPending: false,
           lastMirroredUsername: loginConfig.username || "",
-          tmpNativeInput: lastTmpNativeInput,
           credentialUiInteractionSeen: false,
           helperBlurredForCredentialUi: false,
-          pageFocusWasLost: false,
-          helperOwnsKeyboard: false
+          pageFocusWasLost: false
         };
 
         form.style.display = "block";
-        setCredentialHelperKeyboardOwnership(loginState, true);
+        notifyUnityCredentialHelperFocus(loginState, true);
         armCredentialForm(form);
         applyLoginFormLayout();
 
@@ -2854,8 +2753,8 @@
         // Desktop keeps the safety timeout. On Android the helper must remain
         // alive while Password Manager or its keyboard suggestions own the UI;
         // removing the focused helper closes the keyboard and strands Chrome's
-        // "Sign In" input accessory. Mobile closes only on success, an outside
-        // interaction, native-preview takeover, or explicit focus restoration.
+        // "OK" input accessory. Mobile closes only on success or an intentional
+        // interaction outside the credential helper.
         if (!isAndroidBrowser()) {
           attemptTimer = setTimeout(function () {
             cancelCredentialAttempt("timeout");
@@ -2908,7 +2807,7 @@
         lastCredentialAnimationFrameAt = 0;
 
         const completedState = loginState;
-        setCredentialHelperKeyboardOwnership(completedState, false);
+        notifyUnityCredentialHelperFocus(completedState, false);
         loginState = null;
 
         if (
@@ -2981,11 +2880,8 @@
         const form = document.getElementById(FORM_ID);
         if (form && form.contains(event.target)) return;
 
-        rememberTmpNativeInput(event.target);
-
         if (
           loginState &&
-          !loginState.handoffPending &&
           isAndroidBrowser() &&
           Date.now() - lastProtectedUsernameTouchAt < 800
         ) {
@@ -2996,18 +2892,11 @@
             event.target.blur();
           } catch (_) { }
           setTimeout(focusCredentialUsername, 0);
-          return;
         }
-
-        if (!loginState || !loginState.handoffPending) return;
-
-        // TMP's native input now owns focus. Dormant the helper at this point;
-        // it stays preloaded but can no longer intercept any TMP interaction.
-        removeActiveLoginForm();
       }, true);
 
       function keepAndroidCredentialHelperOnUsername(event) {
-        if (!loginConfig || !loginState || loginState.handoffPending) return false;
+        if (!loginConfig || !loginState) return false;
         if (!isAndroidBrowser() || !pointerIsInsideUsername(event, loginConfig)) return false;
 
         const form = document.getElementById(FORM_ID);
@@ -3048,9 +2937,9 @@
             }
             return;
           } else if (loginState) {
-            rememberTmpNativeInput(event.target);
-            // A TMP/native preview has taken focus. Remove only the helper DOM;
-            // do not notify Unity or deactivate its input field.
+            // Another editable (for example the password field) was selected
+            // intentionally. End the username-helper session without trying to
+            // transfer focus or recreate a TMP-native username element.
             removeActiveLoginForm();
           }
           return;
@@ -3075,12 +2964,12 @@
       // to us. The interaction flag prevents TMP/helper startup focus churn from
       // being mistaken for a dismissed credential sheet.
       window.addEventListener("blur", markCredentialUiFocusLost);
-      window.addEventListener("focus", scheduleReturnToTmpAfterCredentialUi);
+      window.addEventListener("focus", scheduleCredentialHelperParkAfterCredentialUi);
       document.addEventListener("visibilitychange", function () {
         if (document.visibilityState === "hidden") {
           markCredentialUiFocusLost();
         } else if (document.visibilityState === "visible") {
-          scheduleReturnToTmpAfterCredentialUi();
+          scheduleCredentialHelperParkAfterCredentialUi();
         }
       });
 
