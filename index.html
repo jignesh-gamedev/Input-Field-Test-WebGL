@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=13.5'
+          'ServiceWorker.js?v=13.6'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "13.5";
+    const BUILD_VERSION = "13.6";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/9989d6819edccf5064a4f3d276bfe432.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/37648848675e1b930bc6e0688bdbf3be.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/f31e54bf3978e2cd4a674252eab3055d.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/ede7d9f5f2a413dc516849f3ac0fb90d.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/9b0e4d29a84b80e5f126b3151587d3e9.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "13.5",
+      productVersion: "13.6",
       showBanner: unityShowBanner,
     };
 
@@ -2329,6 +2329,7 @@
         submit.type = "submit";
         submit.textContent = "OK";
         submit.tabIndex = -1;
+        submit.formNoValidate = true;
 
         const transparentInputStyle =
           "position:fixed;margin:0;padding:0;border:0;outline:0;" +
@@ -2346,6 +2347,13 @@
 
         form.addEventListener("submit", function (event) {
           event.preventDefault();
+          completeManualUsernameEdit();
+        });
+        submit.addEventListener("click", function (event) {
+          // Handle the accessory directly so Chrome never runs constraint
+          // validation against the intentionally empty password helper.
+          event.preventDefault();
+          completeManualUsernameEdit();
         });
 
         username.addEventListener("input", function (event) {
@@ -2458,7 +2466,7 @@
         mirrorUsernameValueToUnity(input);
       }
 
-      function mirrorUsernameValueToUnity(input) {
+      function mirrorUsernameValueToUnity(input, forceSend) {
         if (!loginState || !input) return;
         if (
           !window.unityInstance ||
@@ -2467,7 +2475,7 @@
         ) return;
 
         const text = input.value || "";
-        if (text === loginState.lastMirroredUsername) return;
+        if (!forceSend && text === loginState.lastMirroredUsername) return;
 
         const caretPosition = Number.isFinite(input.selectionEnd)
           ? input.selectionEnd
@@ -2482,6 +2490,22 @@
           loginState.manualInputCallbackMethodName,
           JSON.stringify({ text: text, caretPosition: caretPosition })
         );
+      }
+
+      function completeManualUsernameEdit() {
+        if (!loginState) return;
+
+        const usernameInput = document.getElementById(USERNAME_ID);
+        if (usernameInput) {
+          // Commit once more at the completion boundary so Unity receives the
+          // final composition/caret value before the focused helper is blurred.
+          mirrorUsernameValueToUnity(usernameInput, true);
+        }
+
+        // Removing the active helper blurs its real input, hides the preview,
+        // and lets Android close the keyboard. The existing closed callback
+        // carries the explicit reason used to invoke TMP's onEndEdit event.
+        cancelCredentialAttempt("manual-submit");
       }
 
       function markCredentialUiFocusLost() {
