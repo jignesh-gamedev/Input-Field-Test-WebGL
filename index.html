@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=13.2'
+          'ServiceWorker.js?v=13.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "13.2";
+    const BUILD_VERSION = "13.3";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/f160cc798e965c3d4c1e84ad19541736.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/f70df38f8b54966f7fcb3343398a89ef.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "13.2",
+      productVersion: "13.3",
       showBanner: unityShowBanner,
     };
 
@@ -498,6 +498,7 @@
       const ANDROID_CHROME_CREDENTIAL_ACCESSORY_KEYBOARD_RATIO = 0.44;
       const ANDROID_CHROME_CREDENTIAL_ACCESSORY_MIN_LIFT = 96;
       const ANDROID_CHROME_CREDENTIAL_ACCESSORY_MAX_LIFT = 180;
+      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_MS = 250;
       const ANDROID_CHROME_HANDOFF_MIN_ACTIVE_MS = 900;
       const ANDROID_CHROME_HANDOFF_MAX_ACTIVE_MS = 2000;
       const ANDROID_CHROME_HANDOFF_STABLE_MS = 250;
@@ -535,6 +536,7 @@
       let chromeCredentialHandoffTargetWasFocused = false;
       let chromeCredentialAccessoryLiftTarget = null;
       let chromeCredentialAccessoryBaselineHeight = 0;
+      let chromeCredentialAccessoryReleaseTimer = null;
 
       function isInstalledWebApp() {
         return (
@@ -856,6 +858,25 @@
         return Math.max(0, targetAccessoryLift - reportedExpansion);
       }
 
+      function releaseChromeCredentialAccessoryLift(form) {
+        if (
+          !chromeCredentialAccessoryLiftTarget ||
+          (form && !form.contains(chromeCredentialAccessoryLiftTarget))
+        ) return;
+
+        if (chromeCredentialAccessoryReleaseTimer) {
+          clearTimeout(chromeCredentialAccessoryReleaseTimer);
+          chromeCredentialAccessoryReleaseTimer = null;
+        }
+
+        chromeCredentialAccessoryLiftTarget = null;
+        chromeCredentialAccessoryBaselineHeight = 0;
+
+        // Re-run the complete live-geometry path. This is the same correction
+        // that a second username tap previously caused through requestLoginForm.
+        scheduleByScan();
+      }
+
       function stopChromeCredentialHandoffRecompute(clearCache) {
         if (chromeCredentialHandoffTimer) {
           clearInterval(chromeCredentialHandoffTimer);
@@ -870,6 +891,10 @@
         chromeCredentialHandoffTargetWasFocused = false;
 
         if (clearCache) {
+          if (chromeCredentialAccessoryReleaseTimer) {
+            clearTimeout(chromeCredentialAccessoryReleaseTimer);
+            chromeCredentialAccessoryReleaseTimer = null;
+          }
           chromeCredentialAccessoryLiftTarget = null;
           chromeCredentialAccessoryBaselineHeight = 0;
           lastKeyboardHeight = 0;
@@ -898,6 +923,17 @@
               ? previousKeyboardHeight
               : getChromeCredentialHandoffKeyboardHeight())
             : 0;
+
+        if (chromeCredentialAccessoryLiftTarget) {
+          const accessoryTarget = chromeCredentialAccessoryLiftTarget;
+          chromeCredentialAccessoryReleaseTimer = setTimeout(function () {
+            chromeCredentialAccessoryReleaseTimer = null;
+            if (chromeCredentialAccessoryLiftTarget !== accessoryTarget) return;
+
+            releaseChromeCredentialAccessoryLift();
+          }, ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_MS);
+        }
+
         chromeCredentialHandoffTargetWasFocused =
           chromeCredentialHandoffTarget === document.activeElement;
         chromeCredentialHandoffStartedAt = startedAt;
@@ -1387,14 +1423,7 @@
       window.UnityNativeInputLayout.releaseCredentialAccessoryLift = function (
         form
       ) {
-        if (
-          !chromeCredentialAccessoryLiftTarget ||
-          (form && !form.contains(chromeCredentialAccessoryLiftTarget))
-        ) return;
-
-        chromeCredentialAccessoryLiftTarget = null;
-        chromeCredentialAccessoryBaselineHeight = 0;
-        scheduleByScan();
+        releaseChromeCredentialAccessoryLift(form);
       };
       window.UnityNativeInputLayout.isKeyboardOpen = function () {
         return getRawKeyboardHeight() > KEYBOARD_OPEN_THRESHOLD;
