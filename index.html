@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=13.3'
+          'ServiceWorker.js?v=13.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "13.3";
+    const BUILD_VERSION = "13.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/f70df38f8b54966f7fcb3343398a89ef.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/5a234eeaab62a030c09232106515894a.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "13.3",
+      productVersion: "13.4",
       showBanner: unityShowBanner,
     };
 
@@ -495,9 +495,10 @@
       // Android Chrome browser only.
       const CHROME_BROWSER_INPUT_EXTRA_LIFT = 20;
       const ANDROID_CHROME_CREDENTIAL_PREVIEW_CLEARANCE = 12;
-      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_KEYBOARD_RATIO = 0.44;
-      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_MIN_LIFT = 96;
-      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_MAX_LIFT = 180;
+      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_RATIO = 0.44;
+      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_MIN_LIFT = 96;
+      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_MAX_LIFT = 180;
+      const ANDROID_CHROME_CREDENTIAL_ACCESSORY_SETTLED_RATIO = 0.08;
       const ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_MS = 250;
       const ANDROID_CHROME_HANDOFF_MIN_ACTIVE_MS = 900;
       const ANDROID_CHROME_HANDOFF_MAX_ACTIVE_MS = 2000;
@@ -536,7 +537,8 @@
       let chromeCredentialHandoffTargetWasFocused = false;
       let chromeCredentialAccessoryLiftTarget = null;
       let chromeCredentialAccessoryBaselineHeight = 0;
-      let chromeCredentialAccessoryReleaseTimer = null;
+      let chromeCredentialAccessoryLiftSettled = false;
+      let chromeCredentialAccessorySettleTimer = null;
 
       function isInstalledWebApp() {
         return (
@@ -839,16 +841,27 @@
           chromeCredentialAccessoryBaselineHeight <= KEYBOARD_OPEN_THRESHOLD
         ) return 0;
 
-        const targetAccessoryLift = Math.max(
-          ANDROID_CHROME_CREDENTIAL_ACCESSORY_MIN_LIFT,
-          Math.min(
-            ANDROID_CHROME_CREDENTIAL_ACCESSORY_MAX_LIFT,
-            Math.round(
-              chromeCredentialAccessoryBaselineHeight *
-                ANDROID_CHROME_CREDENTIAL_ACCESSORY_KEYBOARD_RATIO
+        const targetAccessoryLift = chromeCredentialAccessoryLiftSettled
+          ? Math.max(
+            INPUT_GAP * 3,
+            Math.min(
+              INPUT_HEIGHT - INPUT_GAP,
+              Math.round(
+                chromeCredentialAccessoryBaselineHeight *
+                  ANDROID_CHROME_CREDENTIAL_ACCESSORY_SETTLED_RATIO
+              )
             )
           )
-        );
+          : Math.max(
+            ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_MIN_LIFT,
+            Math.min(
+              ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_MAX_LIFT,
+              Math.round(
+                chromeCredentialAccessoryBaselineHeight *
+                  ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_RATIO
+              )
+            )
+          );
         const reportedExpansion = Math.max(
           0,
           getChromeCredentialHandoffKeyboardHeight() -
@@ -858,19 +871,39 @@
         return Math.max(0, targetAccessoryLift - reportedExpansion);
       }
 
+      function settleChromeCredentialAccessoryLift(expectedTarget) {
+        if (
+          !chromeCredentialAccessoryLiftTarget ||
+          (expectedTarget &&
+            chromeCredentialAccessoryLiftTarget !== expectedTarget)
+        ) return;
+
+        if (chromeCredentialAccessorySettleTimer) {
+          clearTimeout(chromeCredentialAccessorySettleTimer);
+          chromeCredentialAccessorySettleTimer = null;
+        }
+
+        // Gboard's credential strip is browser-owned overlay UI and is not
+        // consistently included in visualViewport or VirtualKeyboard height.
+        // Retain only its small, CSS-scaled remainder after the transition.
+        chromeCredentialAccessoryLiftSettled = true;
+        scheduleByScan();
+      }
+
       function releaseChromeCredentialAccessoryLift(form) {
         if (
           !chromeCredentialAccessoryLiftTarget ||
           (form && !form.contains(chromeCredentialAccessoryLiftTarget))
         ) return;
 
-        if (chromeCredentialAccessoryReleaseTimer) {
-          clearTimeout(chromeCredentialAccessoryReleaseTimer);
-          chromeCredentialAccessoryReleaseTimer = null;
+        if (chromeCredentialAccessorySettleTimer) {
+          clearTimeout(chromeCredentialAccessorySettleTimer);
+          chromeCredentialAccessorySettleTimer = null;
         }
 
         chromeCredentialAccessoryLiftTarget = null;
         chromeCredentialAccessoryBaselineHeight = 0;
+        chromeCredentialAccessoryLiftSettled = false;
 
         // Re-run the complete live-geometry path. This is the same correction
         // that a second username tap previously caused through requestLoginForm.
@@ -891,12 +924,13 @@
         chromeCredentialHandoffTargetWasFocused = false;
 
         if (clearCache) {
-          if (chromeCredentialAccessoryReleaseTimer) {
-            clearTimeout(chromeCredentialAccessoryReleaseTimer);
-            chromeCredentialAccessoryReleaseTimer = null;
+          if (chromeCredentialAccessorySettleTimer) {
+            clearTimeout(chromeCredentialAccessorySettleTimer);
+            chromeCredentialAccessorySettleTimer = null;
           }
           chromeCredentialAccessoryLiftTarget = null;
           chromeCredentialAccessoryBaselineHeight = 0;
+          chromeCredentialAccessoryLiftSettled = false;
           lastKeyboardHeight = 0;
           lockedInputBottom = 0;
           keyboardSessionUntil = 0;
@@ -923,14 +957,13 @@
               ? previousKeyboardHeight
               : getChromeCredentialHandoffKeyboardHeight())
             : 0;
+        chromeCredentialAccessoryLiftSettled = false;
 
         if (chromeCredentialAccessoryLiftTarget) {
           const accessoryTarget = chromeCredentialAccessoryLiftTarget;
-          chromeCredentialAccessoryReleaseTimer = setTimeout(function () {
-            chromeCredentialAccessoryReleaseTimer = null;
-            if (chromeCredentialAccessoryLiftTarget !== accessoryTarget) return;
-
-            releaseChromeCredentialAccessoryLift();
+          chromeCredentialAccessorySettleTimer = setTimeout(function () {
+            chromeCredentialAccessorySettleTimer = null;
+            settleChromeCredentialAccessoryLift(accessoryTarget);
           }, ANDROID_CHROME_CREDENTIAL_ACCESSORY_TRANSITION_MS);
         }
 
