@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=13.8'
+          'ServiceWorker.js?v=13.9'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,30 +124,30 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "13.8";
+    const BUILD_VERSION = "13.9";
     var buildUrl = "Build";
     var loaderUrl =
-      buildUrl + "/4812a9913b242307c6f5b3203f4e8274.loader.js?v=" + BUILD_VERSION;
+      buildUrl + "/aca82ec475354776996aa0d0301146df.loader.js?v=" + BUILD_VERSION;
 
     var config =
     {
       arguments: [],
 
       dataUrl:
-        buildUrl + "/ab7b8224b887f00310845e48955ef89b.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/2268f250316489ca50d83a5b58de9346.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
-        buildUrl + "/08a7e26b24e6abd3c6fe3d406852eb1d.framework.js.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
 
 
 		codeUrl:
-        buildUrl + "/3d59a97474f902aa9e657d80b67ca901.wasm.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/b2fd10fc873a4e68a0d7c72584b8450b.wasm.unityweb?v=" + BUILD_VERSION,
 
 
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "13.8",
+      productVersion: "13.9",
       showBanner: unityShowBanner,
     };
 
@@ -2166,9 +2166,6 @@
       const USERNAME_ID = "username";
       const PASSWORD_ID = "current-password";
       const SUBMIT_ID = "unity-webgl-credential-submit";
-      const DESKTOP_CARET_ID = "unity-webgl-credential-caret";
-      const DESKTOP_VISUAL_STYLE_ID = "unity-webgl-credential-visual-style";
-      const DESKTOP_CARET_ANIMATION = "unity-webgl-credential-caret-blink";
       const CREDENTIAL_ATTEMPT_TIMEOUT_MS = 12000;
       const AUTOFILL_SETTLE_MS = 250;
       const EAGER_AUTOFILL_GUARD_MS = 400;
@@ -2186,8 +2183,6 @@
       let loginConfig = null;
       let lastProtectedUsernameTouchAt = 0;
       let credentialUsernameRefocusInProgress = false;
-      let desktopCaretFrameRequest = null;
-      let desktopCaretMeasureCanvas = null;
 
       function isIOSBrowser() {
         return (
@@ -2291,169 +2286,6 @@
         );
       }
 
-      function clampColorChannel(value) {
-        return Math.max(0, Math.min(1, Number(value) || 0));
-      }
-
-      function getDesktopSelectionCssColor(state) {
-        const color = state && state.usernameSelectionColor
-          ? state.usernameSelectionColor
-          : { red: 0.6588, green: 0.8078, blue: 1, alpha: 0.7529 };
-
-        return (
-          "rgba(" +
-          Math.round(clampColorChannel(color.red) * 255) + "," +
-          Math.round(clampColorChannel(color.green) * 255) + "," +
-          Math.round(clampColorChannel(color.blue) * 255) + "," +
-          clampColorChannel(color.alpha) +
-          ")"
-        );
-      }
-
-      function applyDesktopUsernameSelectionStyle(state) {
-        if (isAndroidBrowser()) return;
-
-        let style = document.getElementById(DESKTOP_VISUAL_STYLE_ID);
-        if (!style) {
-          style = document.createElement("style");
-          style.id = DESKTOP_VISUAL_STYLE_ID;
-          document.head.appendChild(style);
-        }
-
-        const selectionColor = getDesktopSelectionCssColor(state);
-        if (style.getAttribute("data-unity-selection-color") === selectionColor) {
-          return;
-        }
-
-        style.setAttribute("data-unity-selection-color", selectionColor);
-        style.textContent =
-          "#" + USERNAME_ID + "::selection{" +
-            "background-color:" + selectionColor + ";" +
-            "color:transparent;-webkit-text-fill-color:transparent;" +
-          "}" +
-          "#" + USERNAME_ID + "::-moz-selection{" +
-            "background-color:" + selectionColor + ";color:transparent;" +
-          "}" +
-          "@keyframes " + DESKTOP_CARET_ANIMATION + "{" +
-            "0%,49%{opacity:1;}50%,100%{opacity:0;}" +
-          "}";
-      }
-
-      function hideDesktopCredentialCaret() {
-        if (desktopCaretFrameRequest) {
-          cancelAnimationFrame(desktopCaretFrameRequest);
-          desktopCaretFrameRequest = null;
-        }
-
-        const caret = document.getElementById(DESKTOP_CARET_ID);
-        if (caret) caret.style.setProperty("display", "none", "important");
-      }
-
-      function updateDesktopCredentialCaret(input) {
-        const caret = document.getElementById(DESKTOP_CARET_ID);
-        const form = document.getElementById(FORM_ID);
-        if (
-          isAndroidBrowser() ||
-          !caret ||
-          !input ||
-          !loginState ||
-          !form ||
-          form.getAttribute("data-unity-credential-active") !== "true" ||
-          document.activeElement !== input ||
-          !Number.isFinite(input.selectionStart) ||
-          input.selectionStart !== input.selectionEnd
-        ) {
-          if (caret) caret.style.setProperty("display", "none", "important");
-          return;
-        }
-
-        const canvas = document.getElementById("unity-canvas");
-        if (!canvas) {
-          caret.style.setProperty("display", "none", "important");
-          return;
-        }
-
-        const canvasRect = canvas.getBoundingClientRect();
-        const inputRect = input.getBoundingClientRect();
-        const computed = window.getComputedStyle(input);
-        const borderLeft = parseFloat(computed.borderLeftWidth) || 0;
-        const borderTop = parseFloat(computed.borderTopWidth) || 0;
-        const borderRight = parseFloat(computed.borderRightWidth) || 0;
-        const borderBottom = parseFloat(computed.borderBottomWidth) || 0;
-        const paddingLeft = parseFloat(computed.paddingLeft) || 0;
-        const paddingRight = parseFloat(computed.paddingRight) || 0;
-        const paddingTop = parseFloat(computed.paddingTop) || 0;
-        const paddingBottom = parseFloat(computed.paddingBottom) || 0;
-        const fontSize = parseFloat(computed.fontSize) || 16;
-        const lineHeight = parseFloat(computed.lineHeight) || fontSize * 1.2;
-
-        if (!desktopCaretMeasureCanvas) {
-          desktopCaretMeasureCanvas = document.createElement("canvas");
-        }
-
-        const context = desktopCaretMeasureCanvas.getContext("2d");
-        let measuredWidth = 0;
-        if (context) {
-          context.font = computed.font && computed.font !== ""
-            ? computed.font
-            : (
-              computed.fontStyle + " " +
-              computed.fontWeight + " " +
-              computed.fontSize + " " +
-              computed.fontFamily
-            );
-          const prefix = (input.value || "").slice(0, input.selectionStart);
-          measuredWidth = context.measureText(prefix).width;
-
-          const letterSpacing = parseFloat(computed.letterSpacing);
-          if (Number.isFinite(letterSpacing) && prefix.length > 0) {
-            measuredWidth += letterSpacing * prefix.length;
-          }
-        }
-
-        const configuredWidth =
-          (loginState.usernameCaretWidth || 0) * canvasRect.width;
-        const caretWidth = Math.max(0.5, configuredWidth || 1);
-        const contentLeft = inputRect.left + borderLeft + paddingLeft;
-        const contentRight =
-          inputRect.right - borderRight - paddingRight - caretWidth;
-        const caretLeft = Math.max(
-          contentLeft,
-          Math.min(
-            contentRight,
-            contentLeft + measuredWidth - (input.scrollLeft || 0)
-          )
-        );
-        const contentHeight = Math.max(
-          1,
-          inputRect.height -
-            borderTop - borderBottom - paddingTop - paddingBottom
-        );
-        const caretHeight = Math.max(1, Math.min(contentHeight, lineHeight));
-        const caretTop =
-          inputRect.top + borderTop + paddingTop +
-          Math.max(0, (contentHeight - caretHeight) * 0.5);
-
-        caret.style.setProperty("display", "block", "important");
-        caret.style.setProperty("left", caretLeft + "px", "important");
-        caret.style.setProperty("top", caretTop + "px", "important");
-        caret.style.setProperty("width", caretWidth + "px", "important");
-        caret.style.setProperty("height", caretHeight + "px", "important");
-      }
-
-      function scheduleDesktopCredentialCaret(input) {
-        if (isAndroidBrowser()) return;
-
-        if (desktopCaretFrameRequest) {
-          cancelAnimationFrame(desktopCaretFrameRequest);
-        }
-
-        desktopCaretFrameRequest = requestAnimationFrame(function () {
-          desktopCaretFrameRequest = null;
-          updateDesktopCredentialCaret(input);
-        });
-      }
-
       function ensureCredentialForm() {
         let form = document.getElementById(FORM_ID);
         if (form) return form;
@@ -2499,15 +2331,6 @@
         submit.tabIndex = -1;
         submit.formNoValidate = true;
 
-        const desktopCaret = document.createElement("div");
-        desktopCaret.id = DESKTOP_CARET_ID;
-        desktopCaret.setAttribute("aria-hidden", "true");
-        desktopCaret.style.cssText =
-          "position:fixed;left:-10000px;top:0;width:1px;height:1px;" +
-          "display:none;background:#000000;pointer-events:none;" +
-          "z-index:2147483647;animation:" +
-          DESKTOP_CARET_ANIMATION + " 1s step-end infinite;";
-
         const transparentInputStyle =
           "position:fixed;margin:0;padding:0;border:0;outline:0;" +
           "background:transparent;color:transparent;caret-color:transparent;" +
@@ -2536,7 +2359,6 @@
         username.addEventListener("input", function (event) {
           mirrorManualUsernameInputToUnity(event, username);
           observeCredentialValues(false);
-          scheduleDesktopCredentialCaret(username);
         });
         username.addEventListener("change", function () {
           observeCredentialValues(false);
@@ -2551,27 +2373,9 @@
           if (loginState.helperBlurredForCredentialUi) {
             scheduleCredentialHelperParkAfterCredentialUi();
           }
-
-          scheduleDesktopCredentialCaret(username);
         });
         username.addEventListener("blur", function () {
-          hideDesktopCredentialCaret();
           markCredentialUiFocusLost();
-        });
-        username.addEventListener("keydown", function () {
-          scheduleDesktopCredentialCaret(username);
-        });
-        username.addEventListener("keyup", function () {
-          scheduleDesktopCredentialCaret(username);
-        });
-        username.addEventListener("click", function () {
-          scheduleDesktopCredentialCaret(username);
-        });
-        username.addEventListener("select", function () {
-          scheduleDesktopCredentialCaret(username);
-        });
-        username.addEventListener("scroll", function () {
-          scheduleDesktopCredentialCaret(username);
         });
         username.addEventListener("touchstart", function () {
           if (!isAndroidBrowser()) return;
@@ -2611,7 +2415,6 @@
         form.appendChild(username);
         form.appendChild(password);
         form.appendChild(submit);
-        form.appendChild(desktopCaret);
 
         document.body.appendChild(form);
         setCredentialFormDormant(form);
@@ -3032,9 +2835,6 @@
         input.style.setProperty("font-size", fontSize + "px", "important");
         input.style.setProperty("line-height", textHeight + "px", "important");
         input.style.setProperty("box-sizing", "border-box", "important");
-
-        applyDesktopUsernameSelectionStyle(state);
-        scheduleDesktopCredentialCaret(input);
       }
 
       function hideCredentialSubmit(form) {
@@ -3081,8 +2881,6 @@
 
       function setCredentialFormDormant(form) {
         if (!form) return;
-
-        hideDesktopCredentialCaret();
 
         const usernameInput = form.querySelector("#" + USERNAME_ID);
         const passwordInput = form.querySelector("#" + PASSWORD_ID);
@@ -3175,11 +2973,8 @@
             usernameInput.style.setProperty("background", "transparent", "important");
             usernameInput.style.setProperty("color", "transparent", "important");
             usernameInput.style.setProperty("-webkit-text-fill-color", "transparent", "important");
-            // Chrome exposes no native caret-width control. Keep the real caret
-            // transparent and paint a non-interactive caret using TMP's width.
-            usernameInput.style.setProperty("caret-color", "transparent", "important");
+            usernameInput.style.setProperty("caret-color", "#000000", "important");
             usernameInput.style.setProperty("user-select", "text", "important");
-            scheduleDesktopCredentialCaret(usernameInput);
           }
         }
 
@@ -3224,9 +3019,6 @@
           layoutState.passwordBounds
         );
 
-        scheduleDesktopCredentialCaret(
-          document.getElementById(USERNAME_ID)
-        );
       }
 
       function configureLoginForm(options) {
@@ -3246,8 +3038,6 @@
           loginState.usernameBounds = options.usernameBounds;
           loginState.usernameTextBounds = options.usernameTextBounds;
           loginState.usernameFontSize = options.usernameFontSize;
-          loginState.usernameSelectionColor = options.usernameSelectionColor;
-          loginState.usernameCaretWidth = options.usernameCaretWidth;
           loginState.passwordBounds = options.passwordBounds;
 
           const usernameInput = document.getElementById(USERNAME_ID);
@@ -3385,8 +3175,6 @@
           usernameBounds: loginConfig.usernameBounds,
           usernameTextBounds: loginConfig.usernameTextBounds,
           usernameFontSize: loginConfig.usernameFontSize,
-          usernameSelectionColor: loginConfig.usernameSelectionColor,
-          usernameCaretWidth: loginConfig.usernameCaretWidth,
           passwordBounds: loginConfig.passwordBounds,
           openedAt: now,
           lastObservedPairKey: usernameInput.value + "\u0000",
@@ -3443,8 +3231,6 @@
       }
 
       function removeActiveLoginForm() {
-        hideDesktopCredentialCaret();
-
         if (passwordTmpHandoffTimer) {
           clearTimeout(passwordTmpHandoffTimer);
           passwordTmpHandoffTimer = null;
@@ -3543,11 +3329,6 @@
       // event targets Chrome's already-discovered username control.
       document.addEventListener("pointerover", updateCredentialPointerPrime, true);
       document.addEventListener("pointermove", updateCredentialPointerPrime, true);
-      document.addEventListener("selectionchange", function () {
-        scheduleDesktopCredentialCaret(
-          document.getElementById(USERNAME_ID)
-        );
-      });
 
       document.addEventListener("focusin", function (event) {
         if (!isEditableTarget(event.target)) return;
