@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=13.1'
+          'ServiceWorker.js?v=13.2'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "13.1";
+    const BUILD_VERSION = "13.2";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/4f104afb6ba781d55d836fab06632b92.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/d2858f0513170c67964052b63ffef160.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/f160cc798e965c3d4c1e84ad19541736.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "13.1",
+      productVersion: "13.2",
       showBanner: unityShowBanner,
     };
 
@@ -878,7 +878,10 @@
         }
       }
 
-      function startChromeCredentialHandoffRecompute(targetInput) {
+      function startChromeCredentialHandoffRecompute(
+        targetInput,
+        previousKeyboardHeight
+      ) {
         if (!isNormalChromeBrowser()) return;
 
         stopChromeCredentialHandoffRecompute(true);
@@ -891,7 +894,9 @@
         chromeCredentialAccessoryLiftTarget = chromeCredentialHandoffTarget;
         chromeCredentialAccessoryBaselineHeight =
           chromeCredentialAccessoryLiftTarget
-            ? getChromeCredentialHandoffKeyboardHeight()
+            ? (previousKeyboardHeight > KEYBOARD_OPEN_THRESHOLD
+              ? previousKeyboardHeight
+              : getChromeCredentialHandoffKeyboardHeight())
             : 0;
         chromeCredentialHandoffTargetWasFocused =
           chromeCredentialHandoffTarget === document.activeElement;
@@ -1320,9 +1325,14 @@
       }
 
       function resetForCredentialSession(form, pinCredentialUsername) {
+        const currentRawKeyboardHeight = getRawKeyboardHeight();
+        const previousKeyboardHeight =
+          lastKeyboardHeight > KEYBOARD_OPEN_THRESHOLD
+            ? lastKeyboardHeight
+            : currentRawKeyboardHeight;
         const preserveAndroidChromeKeyboardLayout =
           isNormalChromeBrowser() &&
-          getRawKeyboardHeight() > KEYBOARD_OPEN_THRESHOLD;
+          currentRawKeyboardHeight > KEYBOARD_OPEN_THRESHOLD;
         const credentialUsername =
           pinCredentialUsername && form
             ? form.querySelector(
@@ -1352,7 +1362,10 @@
           lockedInputBottom = 0;
           keyboardSessionUntil = 0;
         } else {
-          startChromeCredentialHandoffRecompute(credentialUsername);
+          startChromeCredentialHandoffRecompute(
+            credentialUsername,
+            previousKeyboardHeight
+          );
         }
       }
 
