@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=14.2'
+          'ServiceWorker.js?v=14.3'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "14.2";
+    const BUILD_VERSION = "14.3";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/6718c893872df4becea1e0202638f1ff.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/4f0f94df693c77889c6ef706381f287e.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/60f6a9c8abf3100582edfeeda0b996e4.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "14.2",
+      productVersion: "14.3",
       showBanner: unityShowBanner,
     };
 
@@ -2718,8 +2718,11 @@
           // Chrome Desktop may preview its first suggestion by silently placing
           // values in both fields as the popup opens. Quarantine that immediate
           // pair, then clear only its password after the guard so confirming the
-          // same account produces an observable transition.
+          // same account produces an observable transition. Android Password
+          // Manager can commit the selected bottom-sheet password during this
+          // same early window, so clearing it there produces an email-only fill.
           if (
+            !isAndroidBrowser() &&
             username &&
             password &&
             !loginState.passwordEventSeen &&
