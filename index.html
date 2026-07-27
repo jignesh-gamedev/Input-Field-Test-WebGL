@@ -78,7 +78,7 @@
     window.addEventListener("load", function () {
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register(
-          'ServiceWorker.js?v=14.3'
+          'ServiceWorker.js?v=14.4'
         ).then((registration) => {
           if (registration.waiting) {
             registration.waiting.postMessage('skipWaiting');
@@ -124,7 +124,7 @@
       updateBannerVisibility();
     }
 
-    const BUILD_VERSION = "14.3";
+    const BUILD_VERSION = "14.4";
     var buildUrl = "Build";
     var loaderUrl =
       buildUrl + "/6718c893872df4becea1e0202638f1ff.loader.js?v=" + BUILD_VERSION;
@@ -134,7 +134,7 @@
       arguments: [],
 
       dataUrl:
-        buildUrl + "/60f6a9c8abf3100582edfeeda0b996e4.data.unityweb?v=" + BUILD_VERSION,
+        buildUrl + "/d3a95ea850fae99b19dda5be0ad5dcaa.data.unityweb?v=" + BUILD_VERSION,
 
       frameworkUrl:
         buildUrl + "/2cf5edb3f747a099f6621ea75729d0e6.framework.js.unityweb?v=" + BUILD_VERSION,
@@ -147,7 +147,7 @@
 		  streamingAssetsUrl: "StreamingAssets",
       companyName: "DefaultCompany",
       productName: "WebGL InputField Test",
-      productVersion: "14.3",
+      productVersion: "14.4",
       showBanner: unityShowBanner,
     };
 
@@ -2347,13 +2347,17 @@
 
         form.addEventListener("submit", function (event) {
           event.preventDefault();
-          completeManualUsernameEdit();
+          if (!completeSubmittedCredentialPair()) {
+            completeManualUsernameEdit();
+          }
         });
         submit.addEventListener("click", function (event) {
           // Handle the accessory directly so Chrome never runs constraint
           // validation against the intentionally empty password helper.
           event.preventDefault();
-          completeManualUsernameEdit();
+          if (!completeSubmittedCredentialPair()) {
+            completeManualUsernameEdit();
+          }
         });
 
         username.addEventListener("input", function (event) {
@@ -2506,6 +2510,24 @@
         // and lets Android close the keyboard. The existing closed callback
         // carries the explicit reason used to invoke TMP's onEndEdit event.
         cancelCredentialAttempt("manual-submit");
+      }
+
+      function completeSubmittedCredentialPair() {
+        if (!loginState) return false;
+
+        const usernameInput = document.getElementById(USERNAME_ID);
+        const passwordInput = document.getElementById(PASSWORD_ID);
+        if (!usernameInput || !passwordInput) return false;
+
+        const username = usernameInput.value;
+        const password = passwordInput.value;
+        if (!username || !password) return false;
+
+        // Android Touch-to-Fill can submit immediately after placing the
+        // selected pair in this two-field form. Commit synchronously at that
+        // boundary; the normal 50 ms poll and 250 ms stabilization pass may
+        // otherwise lose the password when manual-submit cleanup removes it.
+        return completeCredentialPair(username, password);
       }
 
       function markCredentialUiFocusLost() {
@@ -2683,6 +2705,33 @@
         }, delay);
       }
 
+      function completeCredentialPair(username, password) {
+        if (!loginState || !username || !password) return false;
+
+        const completedState = loginState;
+        completedState.lastMirroredUsername = username;
+
+        const completedForm = document.getElementById(FORM_ID);
+        if (
+          window.UnityNativeInputLayout &&
+          typeof window.UnityNativeInputLayout.completeCredentialSession === "function"
+        ) {
+          window.UnityNativeInputLayout.completeCredentialSession(completedForm);
+        }
+
+        // Remove the helper before notifying Unity so it cannot steal focus or
+        // keyboard events while TMP refreshes its visible fields.
+        removeActiveLoginForm();
+
+        sendCredentialToUnity(
+          completedState.gameObjectName,
+          completedState.callbackMethodName,
+          username,
+          password
+        );
+        return true;
+      }
+
       function observeCredentialValues(passwordEventSeen) {
         if (!loginState) return;
 
@@ -2743,27 +2792,7 @@
           !loginState.passwordEventSeen
         ) return;
 
-        const completedState = loginState;
-        completedState.lastMirroredUsername = username;
-
-        const completedForm = document.getElementById(FORM_ID);
-        if (
-          window.UnityNativeInputLayout &&
-          typeof window.UnityNativeInputLayout.completeCredentialSession === "function"
-        ) {
-          window.UnityNativeInputLayout.completeCredentialSession(completedForm);
-        }
-
-        // Remove the helper before notifying Unity so it cannot steal focus or
-        // keyboard events while TMP refreshes its visible fields.
-        removeActiveLoginForm();
-
-        sendCredentialToUnity(
-          completedState.gameObjectName,
-          completedState.callbackMethodName,
-          username,
-          password
-        );
+        completeCredentialPair(username, password);
       }
 
       function setInputBounds(input, bounds, resetNativeLayout) {
